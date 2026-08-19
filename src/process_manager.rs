@@ -298,10 +298,19 @@ fn uptime_string(started_at_str: &str) -> String {
 }
 
 pub fn status(config_path: &Path, config: &Config, name: Option<&str>) -> Result<Vec<StatusRow>> {
+    let mut metrics = ProcessMetrics::new();
+    status_with_metrics(config_path, config, name, &mut metrics)
+}
+
+pub fn status_with_metrics(
+    config_path: &Path,
+    config: &Config,
+    name: Option<&str>,
+    metrics: &mut ProcessMetrics,
+) -> Result<Vec<StatusRow>> {
     let _ = crate::registry::ProjectRegistry::register(config_path);
     let state = read_state(config_path);
     let names = resolve_names(config, name)?;
-    let mut metrics = ProcessMetrics::new();
 
     let mut rows = Vec::new();
     for n in names {
@@ -310,7 +319,7 @@ pub fn status(config_path: &Path, config: &Config, name: Option<&str>) -> Result
         let alive = proc_entry.map(|p| is_alive(p.pid)).unwrap_or(false);
 
         let (cpu, memory_mb) = if alive {
-            metrics.query(proc_entry.unwrap().pid)
+            metrics.query_tree(proc_entry.unwrap().pid)
         } else {
             (None, None)
         };
@@ -374,6 +383,12 @@ pub struct GlobalProcRow {
 
 pub fn scan_global_processes() -> Result<Vec<GlobalProcRow>> {
     let mut metrics = ProcessMetrics::new();
+    scan_global_processes_with_metrics(&mut metrics)
+}
+
+pub fn scan_global_processes_with_metrics(
+    metrics: &mut ProcessMetrics,
+) -> Result<Vec<GlobalProcRow>> {
     let mut rows = Vec::new();
     let mut processed_keys = std::collections::HashSet::new();
 
@@ -393,7 +408,7 @@ pub fn scan_global_processes() -> Result<Vec<GlobalProcRow>> {
 
                 if alive {
                     let p = proc_entry.unwrap();
-                    let (cpu, memory_mb) = metrics.query(p.pid);
+                    let (cpu, memory_mb) = metrics.query_tree(p.pid);
                     let tunnel = state.tunnels.get(service_name);
                     let tunnel_url = if tunnel.map(|t| is_alive(t.pid)).unwrap_or(false) {
                         tunnel.and_then(|t| t.url.clone())
@@ -461,7 +476,7 @@ pub fn scan_global_processes() -> Result<Vec<GlobalProcRow>> {
                             if let Ok(state) = serde_json::from_str::<State>(&content) {
                                 for (service_name, proc_entry) in &state.processes {
                                     if is_alive(proc_entry.pid) {
-                                        let (cpu, memory_mb) = metrics.query(proc_entry.pid);
+                                        let (cpu, memory_mb) = metrics.query_tree(proc_entry.pid);
                                         let tunnel = state.tunnels.get(service_name);
                                         let tunnel_url =
                                             if tunnel.map(|t| is_alive(t.pid)).unwrap_or(false) {

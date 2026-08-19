@@ -50,6 +50,7 @@ struct AppState {
     local_rows: Vec<StatusRow>,
     global_rows: Vec<GlobalProcRow>,
     pending_actions: Arc<Mutex<HashMap<String, String>>>,
+    metrics: crate::metrics::ProcessMetrics,
     last_refresh: Instant,
 }
 
@@ -67,15 +68,20 @@ impl AppState {
             local_rows: Vec::new(),
             global_rows: Vec::new(),
             pending_actions: Arc::new(Mutex::new(HashMap::new())),
+            metrics: crate::metrics::ProcessMetrics::new(),
             last_refresh: Instant::now() - UI_REFRESH_INTERVAL,
         }
     }
 
     fn refresh_rows(&mut self, local_cfg: Option<(&Path, &Config)>) {
+        self.metrics.refresh();
         if let Some((cp, cfg)) = local_cfg {
-            self.local_rows = process_manager::status(cp, cfg, None).unwrap_or_default();
+            self.local_rows =
+                process_manager::status_with_metrics(cp, cfg, None, &mut self.metrics)
+                    .unwrap_or_default();
         }
-        self.global_rows = process_manager::scan_global_processes().unwrap_or_default();
+        self.global_rows = process_manager::scan_global_processes_with_metrics(&mut self.metrics)
+            .unwrap_or_default();
 
         // Auto-clear pending actions once the actual status is observed
         if let Ok(mut pending) = self.pending_actions.lock() {
