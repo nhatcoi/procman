@@ -8,6 +8,7 @@ mod metrics;
 mod paths;
 mod process_manager;
 mod qr;
+pub mod registry;
 mod state;
 mod ui;
 pub mod uninstaller;
@@ -216,6 +217,10 @@ fn print_global_ps(rows: &[GlobalProcRow]) {
             .memory_mb
             .map(|m| format!("{}MB", m))
             .unwrap_or_else(|| EMPTY_PLACEHOLDER.to_string());
+        let pid_str = r
+            .pid
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| EMPTY_PLACEHOLDER.to_string());
         let uptime = r.uptime.as_deref().unwrap_or(EMPTY_PLACEHOLDER);
         let port = r
             .port
@@ -227,7 +232,7 @@ fn print_global_ps(rows: &[GlobalProcRow]) {
             "{:<proj_w$}  {:<name_w$}  {:<7}  {:<7}  {:<7}  {:<7}  {:<5}  {:<35}  {}",
             r.project_key,
             r.service_name,
-            r.pid,
+            pid_str,
             cpu,
             mem,
             uptime,

@@ -61,7 +61,7 @@ impl AppState {
             scroll_offset: 0,
             local_rows: Vec::new(),
             global_rows: Vec::new(),
-            last_refresh: Instant::now() - UI_REFRESH_INTERVAL, // Trigger initial load
+            last_refresh: Instant::now() - UI_REFRESH_INTERVAL,
         }
     }
 
@@ -161,6 +161,13 @@ fn render_global_table(f: &mut Frame, area: Rect, state: &AppState) {
         .enumerate()
         .map(|(i, r)| {
             let is_selected = i == state.selected_idx;
+            let dot = if r.running { DOT_RUNNING } else { DOT_STOPPED };
+            let dot_color = if r.running { Color::Green } else { Color::Red };
+
+            let pid_str = r
+                .pid
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into());
             let cpu_str = r
                 .cpu
                 .map(|c| format!("{:.1}%", c))
@@ -181,14 +188,11 @@ fn render_global_table(f: &mut Frame, area: Rect, state: &AppState) {
 
             let row = Row::new(vec![
                 Line::from(vec![
-                    Span::styled(
-                        format!("{} ", DOT_RUNNING),
-                        Style::default().fg(Color::Green),
-                    ),
+                    Span::styled(format!("{} ", dot), Style::default().fg(dot_color)),
                     Span::raw(r.project_key.clone()),
                 ]),
                 Line::from(r.service_name.clone()),
-                Line::from(r.pid.to_string()),
+                Line::from(pid_str),
                 Line::from(cpu_str),
                 Line::from(mem_str),
                 Line::from(up_str),
@@ -234,7 +238,7 @@ fn render_global_table(f: &mut Frame, area: Rect, state: &AppState) {
     .block(
         Block::default()
             .title(format!(
-                " 🌐 Global Dashboard (All Projects - {} active) [Tab: Switch View] ",
+                " 🌐 Global Dashboard (All Projects - {} services) [Tab: Switch View] ",
                 state.global_rows.len()
             ))
             .borders(Borders::ALL)
@@ -425,6 +429,13 @@ fn build_help_spans(state: &AppState) -> Vec<Span<'static>> {
             ),
             Span::raw(" search  "),
             Span::styled(
+                "s",
+                Style::default()
+                    .fg(Color::Green)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" start  "),
+            Span::styled(
                 "x",
                 Style::default().fg(Color::Red).add_modifier(Modifier::BOLD),
             ),
@@ -435,12 +446,33 @@ fn build_help_spans(state: &AppState) -> Vec<Span<'static>> {
             ),
             Span::raw(" kill  "),
             Span::styled(
+                "r",
+                Style::default()
+                    .fg(Color::Cyan)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" restart  "),
+            Span::styled(
+                "f",
+                Style::default()
+                    .fg(Color::Magenta)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" forward  "),
+            Span::styled(
                 "o",
                 Style::default()
                     .fg(Color::LightCyan)
                     .add_modifier(Modifier::BOLD),
             ),
             Span::raw(" QR  "),
+            Span::styled(
+                "d",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::raw(" unregister  "),
             Span::styled(
                 "q",
                 Style::default()
@@ -922,15 +954,114 @@ fn run_app<B: ratatui::backend::Backend>(
                                 state.selected_idx = (state.selected_idx + 1) % row_count;
                             }
                         }
+                        KeyCode::Char('s') => {
+                            if state.is_global_mode {
+                                if let Some(g) = state.global_rows.get(state.selected_idx).cloned()
+                                {
+                                    if let Some(ref cp) = g.config_path {
+                                        if let Ok(cfg) = crate::config::load_config(cp) {
+                                            let _ = process_manager::start(
+                                                cp,
+                                                &cfg,
+                                                Some(&g.service_name),
+                                                false,
+                                            );
+                                            let local_ref = local_config_opt
+                                                .as_ref()
+                                                .map(|(p, c)| (p.as_path(), c));
+                                            state.refresh_rows(local_ref);
+                                            state.status_msg = format!(
+                                                "started {} in {}",
+                                                g.service_name, g.project_key
+                                            );
+                                        } else {
+                                            state.status_msg =
+                                                format!("failed to load config at {:?}", cp);
+                                        }
+                                    } else {
+                                        state.status_msg =
+                                            format!("no config path found for {}", g.project_key);
+                                    }
+                                }
+                            } else if let Some((ref cp, ref cfg)) = local_config_opt {
+                                if let Some(target_name) = state
+                                    .local_rows
+                                    .get(state.selected_idx)
+                                    .map(|r| r.name.clone())
+                                {
+                                    let _ =
+                                        process_manager::start(cp, cfg, Some(&target_name), false);
+                                    let local_ref =
+                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
+                                    state.refresh_rows(local_ref);
+                                    state.status_msg = format!("{} started", target_name);
+                                }
+                            }
+                        }
+                        KeyCode::Char('r') => {
+                            if state.is_global_mode {
+                                if let Some(g) = state.global_rows.get(state.selected_idx).cloned()
+                                {
+                                    if let Some(ref cp) = g.config_path {
+                                        if let Ok(cfg) = crate::config::load_config(cp) {
+                                            let _ = process_manager::restart(
+                                                cp,
+                                                &cfg,
+                                                Some(&g.service_name),
+                                                false,
+                                            );
+                                            let local_ref = local_config_opt
+                                                .as_ref()
+                                                .map(|(p, c)| (p.as_path(), c));
+                                            state.refresh_rows(local_ref);
+                                            state.status_msg = format!(
+                                                "restarted {} in {}",
+                                                g.service_name, g.project_key
+                                            );
+                                        }
+                                    }
+                                }
+                            } else if let Some((ref cp, ref cfg)) = local_config_opt {
+                                if let Some(target_name) = state
+                                    .local_rows
+                                    .get(state.selected_idx)
+                                    .map(|r| r.name.clone())
+                                {
+                                    let _ = process_manager::restart(
+                                        cp,
+                                        cfg,
+                                        Some(&target_name),
+                                        false,
+                                    );
+                                    let local_ref =
+                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
+                                    state.refresh_rows(local_ref);
+                                    state.status_msg = format!("{} restarted", target_name);
+                                }
+                            }
+                        }
                         KeyCode::Char('x') => {
                             if state.is_global_mode {
                                 if let Some(g) = state.global_rows.get(state.selected_idx).cloned()
                                 {
-                                    let _ = stop_by_pid(g.pid);
-                                    state.global_rows = process_manager::scan_global_processes()
-                                        .unwrap_or_default();
+                                    if let Some(ref cp) = g.config_path {
+                                        if let Ok(cfg) = crate::config::load_config(cp) {
+                                            let _ = process_manager::stop(
+                                                cp,
+                                                &cfg,
+                                                Some(&g.service_name),
+                                            );
+                                        } else if let Some(pid) = g.pid {
+                                            let _ = stop_by_pid(pid);
+                                        }
+                                    } else if let Some(pid) = g.pid {
+                                        let _ = stop_by_pid(pid);
+                                    }
+                                    let local_ref =
+                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
+                                    state.refresh_rows(local_ref);
                                     state.status_msg =
-                                        format!("stopped {} (PID {})", g.service_name, g.pid);
+                                        format!("stopped {} in {}", g.service_name, g.project_key);
                                 }
                             } else if let Some((ref cp, ref cfg)) = local_config_opt {
                                 if let Some(target_name) = state
@@ -939,8 +1070,9 @@ fn run_app<B: ratatui::backend::Backend>(
                                     .map(|r| r.name.clone())
                                 {
                                     let _ = process_manager::stop(cp, cfg, Some(&target_name));
-                                    state.local_rows =
-                                        process_manager::status(cp, cfg, None).unwrap_or_default();
+                                    let local_ref =
+                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
+                                    state.refresh_rows(local_ref);
                                     state.status_msg = format!("{} stopped", target_name);
                                 }
                             }
@@ -949,11 +1081,32 @@ fn run_app<B: ratatui::backend::Backend>(
                             if state.is_global_mode {
                                 if let Some(g) = state.global_rows.get(state.selected_idx).cloned()
                                 {
-                                    let _ = force_kill_by_pid(g.pid);
-                                    state.global_rows = process_manager::scan_global_processes()
-                                        .unwrap_or_default();
-                                    state.status_msg =
-                                        format!("force-killed {} (PID {})", g.service_name, g.pid);
+                                    if let Some(ref cp) = g.config_path {
+                                        if let Ok(cfg) = crate::config::load_config(cp) {
+                                            let _ = process_manager::force_stop(
+                                                cp,
+                                                &cfg,
+                                                Some(&g.service_name),
+                                            );
+                                        } else if let Some(pid) = g.pid {
+                                            let _ = force_kill_by_pid(pid);
+                                            if let Some(port) = g.port {
+                                                process_manager::kill_port(port);
+                                            }
+                                        }
+                                    } else if let Some(pid) = g.pid {
+                                        let _ = force_kill_by_pid(pid);
+                                        if let Some(port) = g.port {
+                                            process_manager::kill_port(port);
+                                        }
+                                    }
+                                    let local_ref =
+                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
+                                    state.refresh_rows(local_ref);
+                                    state.status_msg = format!(
+                                        "force-killed {} in {}",
+                                        g.service_name, g.project_key
+                                    );
                                 }
                             } else if let Some((ref cp, ref cfg)) = local_config_opt {
                                 if let Some(target_name) = state
@@ -963,102 +1116,74 @@ fn run_app<B: ratatui::backend::Backend>(
                                 {
                                     let _ =
                                         process_manager::force_stop(cp, cfg, Some(&target_name));
-                                    state.local_rows =
-                                        process_manager::status(cp, cfg, None).unwrap_or_default();
+                                    let local_ref =
+                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
+                                    state.refresh_rows(local_ref);
                                     state.status_msg =
                                         format!("{} force-killed & port freed", target_name);
                                 }
                             }
                         }
-                        KeyCode::Char('s') => {
-                            if !state.is_global_mode {
-                                if let Some((ref cp, ref cfg)) = local_config_opt {
-                                    if let Some(target_name) = state
-                                        .local_rows
-                                        .get(state.selected_idx)
-                                        .map(|r| r.name.clone())
-                                    {
-                                        let _ = process_manager::start(
-                                            cp,
-                                            cfg,
-                                            Some(&target_name),
-                                            false,
-                                        );
-                                        state.local_rows = process_manager::status(cp, cfg, None)
-                                            .unwrap_or_default();
-                                        state.status_msg = format!("{} started", target_name);
-                                    }
-                                }
-                            } else {
-                                state.status_msg =
-                                    "start command is only available in Local View".to_string();
-                            }
-                        }
-                        KeyCode::Char('r') => {
-                            if !state.is_global_mode {
-                                if let Some((ref cp, ref cfg)) = local_config_opt {
-                                    if let Some(target_name) = state
-                                        .local_rows
-                                        .get(state.selected_idx)
-                                        .map(|r| r.name.clone())
-                                    {
-                                        let _ = process_manager::restart(
-                                            cp,
-                                            cfg,
-                                            Some(&target_name),
-                                            false,
-                                        );
-                                        state.local_rows = process_manager::status(cp, cfg, None)
-                                            .unwrap_or_default();
-                                        state.status_msg = format!("{} restarted", target_name);
-                                    }
-                                }
-                            } else {
-                                state.status_msg =
-                                    "restart command is only available in Local View".to_string();
-                            }
-                        }
                         KeyCode::Char('f') => {
-                            if !state.is_global_mode {
-                                if let Some((ref cp, ref cfg)) = local_config_opt {
-                                    if let Some(target_name) = state
-                                        .local_rows
-                                        .get(state.selected_idx)
-                                        .map(|r| r.name.clone())
-                                    {
-                                        match forward_start(cp, cfg, &target_name) {
-                                            Ok((url, _)) => {
-                                                state.local_rows =
-                                                    process_manager::status(cp, cfg, None)
-                                                        .unwrap_or_default();
-                                                state.status_msg =
-                                                    format!("{} -> {}", target_name, url);
+                            if state.is_global_mode {
+                                if let Some(g) = state.global_rows.get(state.selected_idx).cloned()
+                                {
+                                    if let Some(ref cp) = g.config_path {
+                                        if let Ok(cfg) = crate::config::load_config(cp) {
+                                            match forward_start(cp, &cfg, &g.service_name) {
+                                                Ok((url, _)) => {
+                                                    let local_ref = local_config_opt
+                                                        .as_ref()
+                                                        .map(|(p, c)| (p.as_path(), c));
+                                                    state.refresh_rows(local_ref);
+                                                    state.status_msg =
+                                                        format!("{} -> {}", g.service_name, url);
+                                                }
+                                                Err(e) => {
+                                                    state.status_msg =
+                                                        format!("forward failed: {}", e);
+                                                }
                                             }
-                                            Err(e) => {
-                                                state.status_msg = format!("forward failed: {}", e);
-                                            }
+                                        }
+                                    }
+                                }
+                            } else if let Some((ref cp, ref cfg)) = local_config_opt {
+                                if let Some(target_name) = state
+                                    .local_rows
+                                    .get(state.selected_idx)
+                                    .map(|r| r.name.clone())
+                                {
+                                    match forward_start(cp, cfg, &target_name) {
+                                        Ok((url, _)) => {
+                                            let local_ref = local_config_opt
+                                                .as_ref()
+                                                .map(|(p, c)| (p.as_path(), c));
+                                            state.refresh_rows(local_ref);
+                                            state.status_msg =
+                                                format!("{} -> {}", target_name, url);
+                                        }
+                                        Err(e) => {
+                                            state.status_msg = format!("forward failed: {}", e);
                                         }
                                     }
                                 }
                             }
                         }
                         KeyCode::Char('u') => {
-                            if !state.is_global_mode {
-                                if let Some((ref cp, ref cfg)) = local_config_opt {
-                                    if let Some(target_name) = state
-                                        .local_rows
-                                        .get(state.selected_idx)
-                                        .map(|r| r.name.clone())
-                                    {
-                                        match forward_stop(cp, &target_name) {
+                            if state.is_global_mode {
+                                if let Some(g) = state.global_rows.get(state.selected_idx).cloned()
+                                {
+                                    if let Some(ref cp) = g.config_path {
+                                        match forward_stop(cp, &g.service_name) {
                                             Ok(stopped) => {
-                                                state.local_rows =
-                                                    process_manager::status(cp, cfg, None)
-                                                        .unwrap_or_default();
+                                                let local_ref = local_config_opt
+                                                    .as_ref()
+                                                    .map(|(p, c)| (p.as_path(), c));
+                                                state.refresh_rows(local_ref);
                                                 state.status_msg = if stopped {
-                                                    format!("tunnel stopped for {}", target_name)
+                                                    format!("tunnel stopped for {}", g.service_name)
                                                 } else {
-                                                    format!("no tunnel for {}", target_name)
+                                                    format!("no tunnel for {}", g.service_name)
                                                 };
                                             }
                                             Err(e) => {
@@ -1067,6 +1192,47 @@ fn run_app<B: ratatui::backend::Backend>(
                                             }
                                         }
                                     }
+                                }
+                            } else if let Some((ref cp, _)) = local_config_opt {
+                                if let Some(target_name) = state
+                                    .local_rows
+                                    .get(state.selected_idx)
+                                    .map(|r| r.name.clone())
+                                {
+                                    match forward_stop(cp, &target_name) {
+                                        Ok(stopped) => {
+                                            let local_ref = local_config_opt
+                                                .as_ref()
+                                                .map(|(p, c)| (p.as_path(), c));
+                                            state.refresh_rows(local_ref);
+                                            state.status_msg = if stopped {
+                                                format!("tunnel stopped for {}", target_name)
+                                            } else {
+                                                format!("no tunnel for {}", target_name)
+                                            };
+                                        }
+                                        Err(e) => {
+                                            state.status_msg =
+                                                format!("error stopping tunnel: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        KeyCode::Char('d') | KeyCode::Char('D') | KeyCode::Delete => {
+                            if state.is_global_mode {
+                                if let Some(g) = state.global_rows.get(state.selected_idx).cloned()
+                                {
+                                    let _ = crate::registry::ProjectRegistry::unregister(
+                                        &g.project_key,
+                                    );
+                                    let local_ref =
+                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
+                                    state.refresh_rows(local_ref);
+                                    state.status_msg = format!(
+                                        "unregistered project \"{}\" from dashboard",
+                                        g.project_key
+                                    );
                                 }
                             }
                         }

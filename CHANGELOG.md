@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Seamless `Tab` key shortcut to switch back and forth between Local Project View and Global System Dashboard.
   - Live log streaming, fullscreen view, search/filtering, QR popup, and stop/kill controls directly on global processes.
   - Automatic fallback to Global TUI Dashboard when launching `procman ui` outside any repository.
+- **Known Projects Registry & Remote Control (`~/.local/state/procman/registry.json`)**:
+  - Automatically records and persists all activated projects on the machine.
+  - Global Dashboard displays both running (`● up`) and stopped (`○ down`) services across all known projects.
+  - Remote service lifecycle control directly from Global View: Start (`s`), Restart (`r`), Stop (`x`), Force Kill (`k`), Forward (`f`), and Unregister (`d`).
 
 ---
 

@@ -167,13 +167,14 @@ procman ui
 | `Enter` / `Space` | **Zoom Log** | **Toggle Fullscreen Log View** with scroll history (`PageUp`/`PageDown`/`↑`/`↓`/`Home`/`End`) |
 | `/` | **Search / Filter** | **Type keywords to filter log lines live** and highlight matching terms |
 | `c` | **Clear Filter** | Clear the active search filter |
-| `s` | **Start** | Start the selected process in the background |
+| `s` | **Start** | Start the selected process in the background (works in both Local & Global view) |
 | `x` | **Stop** | Gracefully stop the selected process (`SIGTERM`) |
 | `k` | **Force Kill** | Cưỡng chế kill (`SIGKILL`) and immediately free the occupied port |
 | `r` | **Restart** | Stop and start the selected process |
 | `f` | **Forward** | Spawn a Cloudflare Quick Tunnel for the process's port |
 | `o` | **QR Code** | **Open popup modal with ASCII QR Code** to scan with phone camera |
 | `u` | **Unforward** | Stop the Cloudflare tunnel |
+| `d` | **Unregister** | Remove selected project from the Global Dashboard registry |
 | `q` / `Esc` | **Quit** | Exit the TUI dashboard |
 
 ---

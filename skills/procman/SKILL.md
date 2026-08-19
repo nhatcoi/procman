@@ -107,7 +107,7 @@ procman ui
 # Open directly in Global System Dashboard
 procman ui --all
 ```
-*Keyboard shortcuts: `Tab` switch between Local/All Projects, `↑`/`↓` navigate, `Enter`/`Space` fullscreen log, `/` search/filter logs, `c` clear filter, `s` start, `x` stop, `k` force-kill, `r` restart, `f` forward, `o` QR popup modal, `u` unforward, `q` quit.*
+*Keyboard shortcuts: `Tab` switch between Local/All Projects, `↑`/`↓` navigate, `Enter`/`Space` fullscreen log, `/` search/filter logs, `c` clear filter, `s` start (Local & Global), `x` stop, `k` force-kill, `r` restart, `f` forward, `o` QR popup modal, `u` unforward, `d` unregister project, `q` quit.*
 
 ---
 

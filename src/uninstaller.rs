@@ -10,7 +10,9 @@ use crate::process_manager::{force_kill_by_pid, scan_global_processes};
 pub fn run_uninstall(yes: bool, purge: bool) -> Result<()> {
     println!("⚠️  Preparing to uninstall procman...");
 
-    let running = scan_global_processes().unwrap_or_default();
+    let all_procs = scan_global_processes()?;
+    let running: Vec<_> = all_procs.into_iter().filter(|p| p.running).collect();
+
     if !running.is_empty() {
         println!(
             "\n⚠️  There are {} active process(es) currently managed by procman:",
@@ -19,7 +21,9 @@ pub fn run_uninstall(yes: bool, purge: bool) -> Result<()> {
         for p in &running {
             println!(
                 "   - [{}] {} (PID: {})",
-                p.project_key, p.service_name, p.pid
+                p.project_key,
+                p.service_name,
+                p.pid.unwrap_or(0)
             );
         }
         println!("   Uninstalling will stop all of these processes.");
@@ -44,7 +48,9 @@ pub fn run_uninstall(yes: bool, purge: bool) -> Result<()> {
     if !running.is_empty() {
         println!("\n🛑 Stopping running processes...");
         for p in &running {
-            let _ = force_kill_by_pid(p.pid);
+            if let Some(pid) = p.pid {
+                let _ = force_kill_by_pid(pid);
+            }
         }
         println!("   Stopped all active processes.");
     }

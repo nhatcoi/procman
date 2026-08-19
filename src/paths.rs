@@ -83,3 +83,9 @@ pub fn update_cache_file_path() -> PathBuf {
     let _ = fs::create_dir_all(&dir);
     dir.join("update_cache.json")
 }
+
+pub fn registry_file_path() -> PathBuf {
+    let dir = global_state_root();
+    let _ = fs::create_dir_all(&dir);
+    dir.join("registry.json")
+}

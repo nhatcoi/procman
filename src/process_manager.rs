@@ -21,7 +21,6 @@ const SIGKILL_TIMEOUT: Duration = Duration::from_millis(2000);
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 const SHELL_BIN: &str = "sh";
 const LOG_FILE_EXTENSION: &str = "log";
-const DEFAULT_PLACEHOLDER: &str = "-";
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
@@ -283,45 +282,35 @@ pub fn restart(
     start(config_path, config, name, force)
 }
 
-fn uptime_string(started_at: &str) -> String {
-    if let Ok(dt) = DateTime::parse_from_rfc3339(started_at) {
-        let diff = Utc::now().signed_duration_since(dt.with_timezone(&Utc));
-        let total_seconds = diff.num_seconds();
-        if total_seconds < 60 {
-            return format!("{}s", total_seconds);
-        }
-        let minutes = total_seconds / 60;
-        let seconds = total_seconds % 60;
-        if minutes < 60 {
-            return format!("{}m{}s", minutes, seconds);
-        }
-        let hours = minutes / 60;
-        let rem_minutes = minutes % 60;
-        return format!("{}h{}m", hours, rem_minutes);
+fn uptime_string(started_at_str: &str) -> String {
+    let started_at = DateTime::parse_from_rfc3339(started_at_str)
+        .map(|dt| dt.with_timezone(&Utc))
+        .unwrap_or_else(|_| Utc::now());
+    let dur = Utc::now().signed_duration_since(started_at);
+    let secs = dur.num_seconds().max(0);
+    if secs < 60 {
+        format!("{}s", secs)
+    } else if secs < 3600 {
+        format!("{}m{}s", secs / 60, secs % 60)
+    } else {
+        format!("{}h{}m", secs / 3600, (secs % 3600) / 60)
     }
-    DEFAULT_PLACEHOLDER.to_string()
 }
 
 pub fn status(config_path: &Path, config: &Config, name: Option<&str>) -> Result<Vec<StatusRow>> {
+    let _ = crate::registry::ProjectRegistry::register(config_path);
     let state = read_state(config_path);
     let names = resolve_names(config, name)?;
     let mut metrics = ProcessMetrics::new();
 
-    let mut rows = Vec::with_capacity(names.len());
+    let mut rows = Vec::new();
     for n in names {
-        let entry = state.processes.get(&n);
-        let def = match config.processes.get(&n) {
-            Some(d) => d,
-            None => continue,
-        };
+        let def = config.processes.get(&n).unwrap();
+        let proc_entry = state.processes.get(&n);
+        let alive = proc_entry.map(|p| is_alive(p.pid)).unwrap_or(false);
 
-        let running = entry.map(|e| is_alive(e.pid)).unwrap_or(false);
-        let (cpu, memory_mb) = if running {
-            if let Some(e) = entry {
-                metrics.query(e.pid)
-            } else {
-                (None, None)
-            }
+        let (cpu, memory_mb) = if alive {
+            metrics.query(proc_entry.unwrap().pid)
         } else {
             (None, None)
         };
@@ -333,17 +322,24 @@ pub fn status(config_path: &Path, config: &Config, name: Option<&str>) -> Result
 
         rows.push(StatusRow {
             name: n.clone(),
-            running,
-            pid: if running { entry.map(|e| e.pid) } else { None },
-            cpu,
-            memory_mb,
-            uptime: if running {
-                entry.map(|e| uptime_string(&e.started_at))
+            running: alive,
+            pid: if alive {
+                proc_entry.map(|p| p.pid)
             } else {
                 None
             },
-            port: entry.and_then(|e| e.port).or(def.port),
-            log_file: entry.map(|e| e.log_file.clone()).unwrap_or(default_log),
+            cpu,
+            memory_mb,
+            uptime: if alive {
+                proc_entry.map(|p| uptime_string(&p.started_at))
+            } else {
+                None
+            },
+            port: if alive {
+                proc_entry.and_then(|p| p.port)
+            } else {
+                def.port
+            },
             tunnel_url: if tunnel_alive {
                 tunnel.and_then(|t| t.url.clone())
             } else {
@@ -354,6 +350,7 @@ pub fn status(config_path: &Path, config: &Config, name: Option<&str>) -> Result
             } else {
                 None
             },
+            log_file: default_log,
         });
     }
 
@@ -364,61 +361,130 @@ pub fn status(config_path: &Path, config: &Config, name: Option<&str>) -> Result
 pub struct GlobalProcRow {
     pub project_key: String,
     pub service_name: String,
-    pub pid: i32,
+    pub running: bool,
+    pub pid: Option<i32>,
     pub cpu: Option<f32>,
     pub memory_mb: Option<u64>,
     pub uptime: Option<String>,
     pub port: Option<u16>,
     pub tunnel_url: Option<String>,
     pub cwd: String,
+    pub config_path: Option<PathBuf>,
 }
 
 pub fn scan_global_processes() -> Result<Vec<GlobalProcRow>> {
-    let state_root = crate::paths::global_state_root();
-    if !state_root.is_dir() {
-        return Ok(Vec::new());
-    }
-
     let mut metrics = ProcessMetrics::new();
     let mut rows = Vec::new();
+    let mut processed_keys = std::collections::HashSet::new();
 
-    let entries = fs::read_dir(&state_root)
-        .with_context(|| format!("Failed to read directory {:?}", state_root))?;
+    // 1. Scan from Known Projects Registry
+    let registry = crate::registry::ProjectRegistry::load();
+    for proj in registry.get_all() {
+        if !proj.config_path.is_file() {
+            continue;
+        }
+        processed_keys.insert(proj.project_key.clone());
 
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            let state_file = path.join("state.json");
-            if state_file.is_file() {
-                if let Ok(content) = fs::read_to_string(&state_file) {
-                    if let Ok(state) = serde_json::from_str::<State>(&content) {
-                        let project_key = path
-                            .file_name()
-                            .map(|s| s.to_string_lossy().to_string())
-                            .unwrap_or_default();
+        if let Ok(cfg) = crate::config::load_config(&proj.config_path) {
+            let state = read_state(&proj.config_path);
+            for (service_name, def) in &cfg.processes {
+                let proc_entry = state.processes.get(service_name);
+                let alive = proc_entry.map(|p| is_alive(p.pid)).unwrap_or(false);
 
-                        for (service_name, proc_entry) in &state.processes {
-                            if is_alive(proc_entry.pid) {
-                                let (cpu, memory_mb) = metrics.query(proc_entry.pid);
-                                let tunnel = state.tunnels.get(service_name);
-                                let tunnel_url = if tunnel.map(|t| is_alive(t.pid)).unwrap_or(false)
-                                {
-                                    tunnel.and_then(|t| t.url.clone())
-                                } else {
-                                    None
-                                };
+                if alive {
+                    let p = proc_entry.unwrap();
+                    let (cpu, memory_mb) = metrics.query(p.pid);
+                    let tunnel = state.tunnels.get(service_name);
+                    let tunnel_url = if tunnel.map(|t| is_alive(t.pid)).unwrap_or(false) {
+                        tunnel.and_then(|t| t.url.clone())
+                    } else {
+                        None
+                    };
 
-                                rows.push(GlobalProcRow {
-                                    project_key: project_key.clone(),
-                                    service_name: service_name.clone(),
-                                    pid: proc_entry.pid,
-                                    cpu,
-                                    memory_mb,
-                                    uptime: Some(uptime_string(&proc_entry.started_at)),
-                                    port: proc_entry.port,
-                                    tunnel_url,
-                                    cwd: proc_entry.cwd.clone(),
-                                });
+                    rows.push(GlobalProcRow {
+                        project_key: proj.project_key.clone(),
+                        service_name: service_name.clone(),
+                        running: true,
+                        pid: Some(p.pid),
+                        cpu,
+                        memory_mb,
+                        uptime: Some(uptime_string(&p.started_at)),
+                        port: p.port.or(def.port),
+                        tunnel_url,
+                        cwd: p.cwd.clone(),
+                        config_path: Some(proj.config_path.clone()),
+                    });
+                } else {
+                    let default_cwd = def
+                        .cwd
+                        .as_ref()
+                        .map(|c| proj.project_dir.join(c).to_string_lossy().to_string())
+                        .unwrap_or_else(|| proj.project_dir.to_string_lossy().to_string());
+
+                    rows.push(GlobalProcRow {
+                        project_key: proj.project_key.clone(),
+                        service_name: service_name.clone(),
+                        running: false,
+                        pid: None,
+                        cpu: None,
+                        memory_mb: None,
+                        uptime: None,
+                        port: def.port,
+                        tunnel_url: None,
+                        cwd: default_cwd,
+                        config_path: Some(proj.config_path.clone()),
+                    });
+                }
+            }
+        }
+    }
+
+    // 2. Scan active process states in ~/.local/state/procman/ that might not be in registry
+    let state_root = crate::paths::global_state_root();
+    if state_root.is_dir() {
+        if let Ok(entries) = fs::read_dir(&state_root) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    let project_key = path
+                        .file_name()
+                        .map(|s| s.to_string_lossy().to_string())
+                        .unwrap_or_default();
+
+                    if processed_keys.contains(&project_key) {
+                        continue;
+                    }
+
+                    let state_file = path.join("state.json");
+                    if state_file.is_file() {
+                        if let Ok(content) = fs::read_to_string(&state_file) {
+                            if let Ok(state) = serde_json::from_str::<State>(&content) {
+                                for (service_name, proc_entry) in &state.processes {
+                                    if is_alive(proc_entry.pid) {
+                                        let (cpu, memory_mb) = metrics.query(proc_entry.pid);
+                                        let tunnel = state.tunnels.get(service_name);
+                                        let tunnel_url =
+                                            if tunnel.map(|t| is_alive(t.pid)).unwrap_or(false) {
+                                                tunnel.and_then(|t| t.url.clone())
+                                            } else {
+                                                None
+                                            };
+
+                                        rows.push(GlobalProcRow {
+                                            project_key: project_key.clone(),
+                                            service_name: service_name.clone(),
+                                            running: true,
+                                            pid: Some(proc_entry.pid),
+                                            cpu,
+                                            memory_mb,
+                                            uptime: Some(uptime_string(&proc_entry.started_at)),
+                                            port: proc_entry.port,
+                                            tunnel_url,
+                                            cwd: proc_entry.cwd.clone(),
+                                            config_path: None,
+                                        });
+                                    }
+                                }
                             }
                         }
                     }
