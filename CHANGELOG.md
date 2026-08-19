@@ -9,16 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+- **Service Dependency Ordering (`depends_on`)**: Wait for upstream services to open ports or pass health checks before starting downstream dependencies.
+- **File Watcher & Hot Reload (`watch`)**: Auto-restart processes on source code changes using the `notify` crate.
+- **Environment File Loading (`env_file`)**: Automatically load `.env` or `.env.local` files globally or per process.
+- **Auto-Recovery on Crash (`restart: on-failure`)**: Automatically restart failed processes with configurable retry limits (`max_retries`).
+- **Pre-Start Tasks (`pre_start`)**: Execute prerequisite commands (e.g. database migrations, assets build) prior to launching the main process.
+- **Project Initializer (`procman init`)**: Auto-detect project tech stack (Node.js, Go, Python, Rust, Docker) and generate a ready-to-use `procman.yaml`.
+- **Diagnostic Assistant (`procman doctor <name>`)**: Analyze recent log lines to diagnose crash reasons and recommend fixes.
+
+---
+
+## [0.1.2] - 2026-08-19
+
 ### Added
 - **Global TUI Dashboard (`procman ui --all` / `-a` & `Tab` Key Switcher)**:
   - Interactive TUI dashboard capable of monitoring and controlling active processes across all projects on the entire system.
-  - Seamless `Tab` key shortcut to switch back and forth between Local Project View and Global System Dashboard.
+  - Seamless `Tab` key shortcut to switch back and forth between Local Project View and Global System Dashboard, or drill down into any selected project directly from the Global View.
   - Live log streaming, fullscreen view, search/filtering, QR popup, and stop/kill controls directly on global processes.
   - Automatic fallback to Global TUI Dashboard when launching `procman ui` outside any repository.
 - **Known Projects Registry & Remote Control (`~/.local/state/procman/registry.json`)**:
   - Automatically records and persists all activated projects on the machine.
   - Global Dashboard displays both running (`● up`) and stopped (`○ down`) services across all known projects.
   - Remote service lifecycle control directly from Global View: Start (`s`), Restart (`r`), Stop (`x`), Force Kill (`k`), Forward (`f`), and Unregister (`d`).
+
+### Changed
+- **Clean Architecture & Modular Layering**:
+  - Refactored `src/` into structured domain layers: `cli/`, `engine/` (`process`, `metrics`, `registry`, `state`, `logs`), `tunnels/`, and `tui/`.
+- **Async TUI Execution & Non-Blocking State**:
+  - Eliminated TUI rendering freezes during process lifecycle commands and Cloudflare tunnel spawning by offloading operations to background threads.
+  - Introduced transient intermediate states (`starting...`, `stopping...`) in the TUI for immediate visual feedback.
+- **Accurate Resource Aggregation & Deterministic UI**:
+  - Aggregated CPU% and RAM metrics across full recursive child process trees while filtering out OS threads to prevent duplicate memory accounting.
+  - Preserved row selection identity and deterministic sorting across state ticks.
+- **Git Tag Installation**:
+  - Updated installer (`install.sh`) and self-updater to install the latest released git tag by default.
 
 ---
 
