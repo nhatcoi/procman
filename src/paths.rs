@@ -74,6 +74,10 @@ pub fn global_state_root() -> PathBuf {
     xdg_state_home().join(APP_NAME)
 }
 
+pub fn global_data_root() -> PathBuf {
+    xdg_data_home().join(APP_NAME)
+}
+
 pub fn update_cache_file_path() -> PathBuf {
     let dir = global_state_root();
     let _ = fs::create_dir_all(&dir);

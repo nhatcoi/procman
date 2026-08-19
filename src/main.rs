@@ -10,6 +10,7 @@ mod process_manager;
 mod qr;
 mod state;
 mod ui;
+pub mod uninstaller;
 pub mod updater;
 
 use config::require_config;
@@ -96,6 +97,16 @@ enum Commands {
         /// Automatically accept upgrade prompt without asking
         #[arg(short = 'y', long)]
         yes: bool,
+    },
+    /// Uninstall procman completely from your system
+    #[command(alias = "self-uninstall")]
+    Uninstall {
+        /// Automatically accept confirmation prompt without asking
+        #[arg(short = 'y', long)]
+        yes: bool,
+        /// Purge all procman state and logs directories (~/.local/state/procman, ~/.local/share/procman)
+        #[arg(short = 'p', long)]
+        purge: bool,
     },
     /// Install procman agent skill (.agents/skills/procman/SKILL.md) into current project
     #[command(alias = "install-skill", alias = "init-skill")]
@@ -261,6 +272,7 @@ fn main() -> Result<()> {
 
     let is_ui_command = matches!(cli.command, Some(Commands::Ui));
     let is_upgrade_command = matches!(cli.command, Some(Commands::Upgrade { .. }));
+    let is_uninstall_command = matches!(cli.command, Some(Commands::Uninstall { .. }));
 
     match cli.command {
         Some(Commands::Start { name, force }) => {
@@ -352,6 +364,9 @@ fn main() -> Result<()> {
         Some(Commands::Upgrade { yes }) => {
             updater::run_upgrade(yes)?;
         }
+        Some(Commands::Uninstall { yes, purge }) => {
+            uninstaller::run_uninstall(yes, purge)?;
+        }
         Some(Commands::Skill { path }) => {
             install_skill_file(path.as_deref())?;
         }
@@ -372,7 +387,7 @@ fn main() -> Result<()> {
         }
     }
 
-    if !is_ui_command && !is_upgrade_command {
+    if !is_ui_command && !is_upgrade_command && !is_uninstall_command {
         if let Some(notice) = updater::get_update_notice() {
             print!("{}", notice);
         }

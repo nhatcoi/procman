@@ -186,6 +186,7 @@ procman ui
 | `procman qr <name>` | Print ASCII QR code in terminal for mobile scanning |
 | `procman skill` | Install AI agent skill (`.agents/skills/procman/SKILL.md`) into current project |
 | `procman upgrade` / `update` | Check for updates and upgrade procman to the latest release (`-y` to skip prompt) |
+| `procman uninstall` | Completely uninstall procman and stop background processes (`-p, --purge` to delete state/logs) |
 | `procman ui` | Launch full-screen interactive TUI dashboard |
 
 ---

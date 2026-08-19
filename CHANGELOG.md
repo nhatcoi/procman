@@ -42,6 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `procman qr <name>` - Print ASCII QR code in terminal for mobile scanning.
   - `procman skill` - Install procman AI agent skill into project (`.agents/skills/procman/SKILL.md`).
   - `procman upgrade` / `update` - Self-upgrade to the latest available release.
+  - `procman uninstall` - Completely uninstall procman and stop background processes (`-p, --purge`).
   - `procman ui` - Interactive terminal TUI dashboard powered by `ratatui`.
 - **Interactive TUI Dashboard**:
   - Realtime process status badges (`●` up / `○` down), CPU%, RAM (MB), PID, and Uptime.

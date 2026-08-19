@@ -86,6 +86,8 @@ Execute `procman` commands from within the project directory (or any subfolder; 
 | **Tail N Lines** | `procman logs <name> -n 50` | Prints the last 50 lines of log |
 | **Follow Logs** | `procman logs <name> -f` | Real-time streaming log output (`tail -f`) |
 | **QR Code** | `procman qr <name>` | Renders a terminal QR code for the process's active tunnel or local URL |
+| **Upgrade** | `procman upgrade` | Checks and self-upgrades procman to the latest release |
+| **Uninstall** | `procman uninstall` | Completely uninstalls procman binary and stops processes (`-p` to purge) |
 
 ### Public Port Forwarding (Cloudflare Tunnels)
 
