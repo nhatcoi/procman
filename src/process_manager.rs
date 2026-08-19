@@ -298,7 +298,7 @@ fn uptime_string(started_at_str: &str) -> String {
 }
 
 pub fn status(config_path: &Path, config: &Config, name: Option<&str>) -> Result<Vec<StatusRow>> {
-    let mut metrics = ProcessMetrics::new();
+    let mut metrics = ProcessMetrics::new_with_sample();
     status_with_metrics(config_path, config, name, &mut metrics)
 }
 
@@ -382,7 +382,7 @@ pub struct GlobalProcRow {
 }
 
 pub fn scan_global_processes() -> Result<Vec<GlobalProcRow>> {
-    let mut metrics = ProcessMetrics::new();
+    let mut metrics = ProcessMetrics::new_with_sample();
     scan_global_processes_with_metrics(&mut metrics)
 }
 

@@ -1,4 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
+use std::thread;
+use std::time::Duration;
 use sysinfo::{Pid, ProcessesToUpdate, System};
 
 pub struct ProcessMetrics {
@@ -8,6 +10,14 @@ pub struct ProcessMetrics {
 impl ProcessMetrics {
     pub fn new() -> Self {
         let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        Self { system }
+    }
+
+    pub fn new_with_sample() -> Self {
+        let mut system = System::new();
+        system.refresh_processes(ProcessesToUpdate::All, true);
+        thread::sleep(Duration::from_millis(100));
         system.refresh_processes(ProcessesToUpdate::All, true);
         Self { system }
     }
@@ -26,11 +36,13 @@ impl ProcessMetrics {
             return (None, None);
         }
 
-        // Build parent -> children relationship map
+        // Build parent -> children relationship map (only actual processes, excluding OS threads)
         let mut children_map: HashMap<Pid, Vec<Pid>> = HashMap::new();
         for (pid, proc) in self.system.processes() {
-            if let Some(parent_pid) = proc.parent() {
-                children_map.entry(parent_pid).or_default().push(*pid);
+            if proc.thread_kind().is_none() {
+                if let Some(parent_pid) = proc.parent() {
+                    children_map.entry(parent_pid).or_default().push(*pid);
+                }
             }
         }
 
@@ -45,8 +57,10 @@ impl ProcessMetrics {
 
         while let Some(current_pid) = queue.pop_front() {
             if let Some(proc) = self.system.process(current_pid) {
-                total_cpu += proc.cpu_usage();
-                total_mem_bytes += proc.memory();
+                if proc.thread_kind().is_none() {
+                    total_cpu += proc.cpu_usage();
+                    total_mem_bytes += proc.memory();
+                }
             }
 
             if let Some(children) = children_map.get(&current_pid) {
@@ -71,5 +85,20 @@ impl ProcessMetrics {
 impl Default for ProcessMetrics {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_process_metrics_query() {
+        let m = ProcessMetrics::new_with_sample();
+        let my_pid = std::process::id() as i32;
+        let (cpu, mem) = m.query_tree(my_pid);
+        assert!(mem.is_some());
+        assert!(mem.unwrap() >= 1);
+        assert!(cpu.is_some());
     }
 }
