@@ -80,7 +80,7 @@ pub fn kill_port(port: u16) {
 
     let _ = Command::new(SHELL_BIN)
         .arg("-c")
-        .arg(&format!(
+        .arg(format!(
             "lsof -ti :{} 2>/dev/null | xargs -r kill -9 2>/dev/null",
             port
         ))
@@ -122,9 +122,8 @@ pub fn start_one(
         }
     }
 
-    let should_free_port = force
-        || def.free_port.unwrap_or(false)
-        || def.kill_before_run.unwrap_or(false);
+    let should_free_port =
+        force || def.free_port.unwrap_or(false) || def.kill_before_run.unwrap_or(false);
 
     if should_free_port {
         if let Some(port) = def.port {
@@ -225,11 +224,7 @@ pub fn start(
     status(config_path, config, name)
 }
 
-pub fn stop(
-    config_path: &Path,
-    config: &Config,
-    name: Option<&str>,
-) -> Result<Vec<StatusRow>> {
+pub fn stop(config_path: &Path, config: &Config, name: Option<&str>) -> Result<Vec<StatusRow>> {
     let mut state = read_state(config_path);
     let names = resolve_names(config, name)?;
 
@@ -307,11 +302,7 @@ fn uptime_string(started_at: &str) -> String {
     DEFAULT_PLACEHOLDER.to_string()
 }
 
-pub fn status(
-    config_path: &Path,
-    config: &Config,
-    name: Option<&str>,
-) -> Result<Vec<StatusRow>> {
+pub fn status(config_path: &Path, config: &Config, name: Option<&str>) -> Result<Vec<StatusRow>> {
     let state = read_state(config_path);
     let names = resolve_names(config, name)?;
     let mut metrics = ProcessMetrics::new();
@@ -338,9 +329,7 @@ pub fn status(
         let tunnel = state.tunnels.get(&n);
         let tunnel_alive = tunnel.map(|t| is_alive(t.pid)).unwrap_or(false);
 
-        let default_log = log_file_for(config_path, &n)?
-            .to_string_lossy()
-            .to_string();
+        let default_log = log_file_for(config_path, &n)?.to_string_lossy().to_string();
 
         rows.push(StatusRow {
             name: n.clone(),
@@ -412,7 +401,8 @@ pub fn scan_global_processes() -> Result<Vec<GlobalProcRow>> {
                             if is_alive(proc_entry.pid) {
                                 let (cpu, memory_mb) = metrics.query(proc_entry.pid);
                                 let tunnel = state.tunnels.get(service_name);
-                                let tunnel_url = if tunnel.map(|t| is_alive(t.pid)).unwrap_or(false) {
+                                let tunnel_url = if tunnel.map(|t| is_alive(t.pid)).unwrap_or(false)
+                                {
                                     tunnel.and_then(|t| t.url.clone())
                                 } else {
                                     None

@@ -53,8 +53,8 @@ pub fn read_state(config_path: &Path) -> State {
 
 pub fn write_state(config_path: &Path, state: &State) -> Result<()> {
     let file = state_file_path(config_path)?;
-    let content = serde_json::to_string_pretty(state)
-        .context("Failed to serialize state to JSON")?;
+    let content =
+        serde_json::to_string_pretty(state).context("Failed to serialize state to JSON")?;
     fs::write(&file, content)
         .with_context(|| format!("Failed to write state file at {:?}", file))?;
     Ok(())

@@ -67,11 +67,9 @@ pub fn run_uninstall(yes: bool, purge: bool) -> Result<()> {
     let mut removed = false;
 
     if let Ok(exe_path) = env::current_exe() {
-        if exe_path.is_file() {
-            if fs::remove_file(&exe_path).is_ok() {
-                println!("   Removed executable at {:?}", exe_path);
-                removed = true;
-            }
+        if exe_path.is_file() && fs::remove_file(&exe_path).is_ok() {
+            println!("   Removed executable at {:?}", exe_path);
+            removed = true;
         }
     }
 

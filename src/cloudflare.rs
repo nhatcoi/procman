@@ -50,14 +50,11 @@ fn wait_for_url(log_file: &Path, timeout: Duration) -> Option<String> {
     None
 }
 
-pub fn forward_start(
-    config_path: &Path,
-    config: &Config,
-    name: &str,
-) -> Result<(String, i32)> {
-    let def = config.processes.get(name).ok_or_else(|| {
-        anyhow!("Unknown process \"{}\" (check procman.yaml)", name)
-    })?;
+pub fn forward_start(config_path: &Path, config: &Config, name: &str) -> Result<(String, i32)> {
+    let def = config
+        .processes
+        .get(name)
+        .ok_or_else(|| anyhow!("Unknown process \"{}\" (check procman.yaml)", name))?;
 
     if !cloudflared_available() {
         return Err(anyhow!(
@@ -118,7 +115,9 @@ pub fn forward_start(
         });
     }
 
-    let child = cmd.spawn().with_context(|| "Failed to spawn cloudflared tunnel")?;
+    let child = cmd
+        .spawn()
+        .with_context(|| "Failed to spawn cloudflared tunnel")?;
     let child_pid = child.id() as i32;
 
     let url = wait_for_url(&log_file, TUNNEL_WAIT_TIMEOUT).ok_or_else(|| {

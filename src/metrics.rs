@@ -17,7 +17,8 @@ impl ProcessMetrics {
         }
 
         let sys_pid = Pid::from_u32(pid as u32);
-        self.system.refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
+        self.system
+            .refresh_processes(ProcessesToUpdate::Some(&[sys_pid]), true);
 
         if let Some(proc) = self.system.process(sys_pid) {
             let cpu = proc.cpu_usage();

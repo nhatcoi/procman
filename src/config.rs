@@ -100,7 +100,9 @@ pub fn load_config(config_path: &Path) -> Result<Config> {
 
 pub fn require_config() -> Result<(PathBuf, Config)> {
     let config_path = find_config_path(None).ok_or_else(|| {
-        anyhow!("No procman config found (looked for procman.yaml / procman.json walking up from cwd).")
+        anyhow!(
+            "No procman config found (looked for procman.yaml / procman.json walking up from cwd)."
+        )
     })?;
 
     let config = load_config(&config_path)?;

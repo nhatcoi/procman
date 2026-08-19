@@ -57,7 +57,10 @@ pub fn parse_version_tuple(v: &str) -> Option<(u64, u64, u64)> {
     let major = parts[0].parse::<u64>().ok()?;
     let minor = parts[1].parse::<u64>().ok()?;
     let patch = if parts.len() >= 3 {
-        let num_str: String = parts[2].chars().take_while(|c| c.is_ascii_digit()).collect();
+        let num_str: String = parts[2]
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
         num_str.parse::<u64>().unwrap_or(0)
     } else {
         0
@@ -74,7 +77,10 @@ pub fn is_newer(current: &str, candidate: &str) -> bool {
 
 pub fn fetch_remote_latest_version() -> Option<String> {
     // 1. Try GitHub Releases API
-    let gh_api_url = format!("https://api.github.com/repos/{}/releases/latest", GITHUB_REPO);
+    let gh_api_url = format!(
+        "https://api.github.com/repos/{}/releases/latest",
+        GITHUB_REPO
+    );
     let output = Command::new("curl")
         .args([
             "-fsSL",
@@ -262,7 +268,7 @@ pub fn run_upgrade(yes: bool) -> Result<()> {
         println!("⚙️  Running quick install script...");
         let status = Command::new("sh")
             .arg("-c")
-            .arg(&format!(
+            .arg(format!(
                 "curl -fsSL https://raw.githubusercontent.com/{}/main/install.sh | sh",
                 GITHUB_REPO
             ))

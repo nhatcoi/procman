@@ -19,7 +19,8 @@ use process_manager::{GlobalProcRow, StatusRow};
 const APP_NAME: &str = "procman";
 const APP_AUTHOR: &str = "nhatcoi";
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
-const APP_ABOUT: &str = "Custom process manager: start/stop/log/forward processes from a project config file";
+const APP_ABOUT: &str =
+    "Custom process manager: start/stop/log/forward processes from a project config file";
 
 const STATUS_UP: &str = "up";
 const STATUS_DOWN: &str = "down";
@@ -47,17 +48,11 @@ enum Commands {
         force: bool,
     },
     /// Stop one process, or all processes if no name is given
-    Stop {
-        name: Option<String>,
-    },
+    Stop { name: Option<String> },
     /// Force kill one or all processes (sends SIGKILL and frees ports)
-    Kill {
-        name: Option<String>,
-    },
+    Kill { name: Option<String> },
     /// Force kill whatever process is occupying a specific port
-    KillPort {
-        port: u16,
-    },
+    KillPort { port: u16 },
     /// Restart one process, or all processes if no name is given
     Restart {
         name: Option<String>,
@@ -65,9 +60,7 @@ enum Commands {
         force: bool,
     },
     /// Show status of all processes in the current project (default command)
-    Status {
-        name: Option<String>,
-    },
+    Status { name: Option<String> },
     /// List all active processes across all projects on the system
     #[command(alias = "ls", alias = "list")]
     Ps,
@@ -80,17 +73,11 @@ enum Commands {
         lines: usize,
     },
     /// Expose a process's port via a cloudflared quick tunnel
-    Forward {
-        name: String,
-    },
+    Forward { name: String },
     /// Stop the cloudflared tunnel for a process
-    ForwardStop {
-        name: String,
-    },
+    ForwardStop { name: String },
     /// Print ASCII QR code for mobile scanning
-    Qr {
-        name: String,
-    },
+    Qr { name: String },
     /// Upgrade procman to the latest available release
     #[command(alias = "update", alias = "self-update")]
     Upgrade {
@@ -129,16 +116,18 @@ fn print_status(rows: &[StatusRow]) {
         return;
     }
 
-    let name_w = rows
-        .iter()
-        .map(|r| r.name.len())
-        .max()
-        .unwrap_or(4)
-        .max(4);
+    let name_w = rows.iter().map(|r| r.name.len()).max().unwrap_or(4).max(4);
 
     let header = format!(
         "{:<name_w$}  {:<7}  {:<7}  {:<7}  {:<7}  {:<7}  {:<5}  {}",
-        "NAME", "STATUS", "PID", "CPU", "MEM", "UPTIME", "PORT", "TUNNEL",
+        "NAME",
+        "STATUS",
+        "PID",
+        "CPU",
+        "MEM",
+        "UPTIME",
+        "PORT",
+        "TUNNEL",
         name_w = name_w
     );
     println!("{}", header);
@@ -201,7 +190,15 @@ fn print_global_ps(rows: &[GlobalProcRow]) {
 
     let header = format!(
         "{:<proj_w$}  {:<name_w$}  {:<7}  {:<7}  {:<7}  {:<7}  {:<5}  {:<35}  {}",
-        "PROJECT", "SERVICE", "PID", "CPU", "MEM", "UPTIME", "PORT", "TUNNEL", "CWD",
+        "PROJECT",
+        "SERVICE",
+        "PID",
+        "CPU",
+        "MEM",
+        "UPTIME",
+        "PORT",
+        "TUNNEL",
+        "CWD",
         proj_w = proj_w,
         name_w = name_w
     );
@@ -263,7 +260,10 @@ fn install_skill_file(custom_path: Option<&str>) -> Result<()> {
     }
 
     std::fs::write(&dest, PROCMAN_SKILL_CONTENT)?;
-    println!("✅ procman agent skill successfully installed to: {}", dest.display());
+    println!(
+        "✅ procman agent skill successfully installed to: {}",
+        dest.display()
+    );
     println!("   Your AI agent (Antigravity, Cursor, Claude Code) can now autonomously manage project processes.");
     Ok(())
 }
@@ -312,7 +312,11 @@ fn main() -> Result<()> {
             let global_rows = process_manager::scan_global_processes()?;
             print_global_ps(&global_rows);
         }
-        Some(Commands::Logs { name, follow, lines }) => {
+        Some(Commands::Logs {
+            name,
+            follow,
+            lines,
+        }) => {
             let (config_path, config) = require_config()?;
             let _ = config
                 .processes
