@@ -116,7 +116,11 @@ enum Commands {
         path: Option<String>,
     },
     /// Interactive dashboard (start/stop/logs/forward/fullscreen/search)
-    Ui,
+    Ui {
+        /// Launch directly into Global Dashboard showing all projects across the system
+        #[arg(short = 'a', long = "all", short_alias = 'g', alias = "global")]
+        all: bool,
+    },
 }
 
 fn print_status(rows: &[StatusRow]) {
@@ -270,7 +274,7 @@ fn main() -> Result<()> {
     // Trigger non-blocking background check if cache is older than 24 hours
     updater::trigger_background_update_check();
 
-    let is_ui_command = matches!(cli.command, Some(Commands::Ui));
+    let is_ui_command = matches!(cli.command, Some(Commands::Ui { .. }));
     let is_upgrade_command = matches!(cli.command, Some(Commands::Upgrade { .. }));
     let is_uninstall_command = matches!(cli.command, Some(Commands::Uninstall { .. }));
 
@@ -370,8 +374,8 @@ fn main() -> Result<()> {
         Some(Commands::Skill { path }) => {
             install_skill_file(path.as_deref())?;
         }
-        Some(Commands::Ui) => {
-            ui::render_ui()?;
+        Some(Commands::Ui { all }) => {
+            ui::render_ui(all)?;
         }
         None => {
             if let Some(config_path) = config::find_config_path(None) {

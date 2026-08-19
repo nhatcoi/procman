@@ -162,6 +162,7 @@ procman ui
 
 | Key | Action | Description |
 | :--- | :--- | :--- |
+| `Tab` | **Switch Mode** | **Toggle between Local Project View and Global Dashboard (All Projects)** |
 | `↑` / `↓` | **Navigate** | Select between processes |
 | `Enter` / `Space` | **Zoom Log** | **Toggle Fullscreen Log View** with scroll history (`PageUp`/`PageDown`/`↑`/`↓`/`Home`/`End`) |
 | `/` | **Search / Filter** | **Type keywords to filter log lines live** and highlight matching terms |
@@ -195,7 +196,7 @@ procman ui
 | `procman skill` | Install AI agent skill (`.agents/skills/procman/SKILL.md`) into current project |
 | `procman upgrade` / `update` | Check for updates and upgrade procman to the latest release (`-y` to skip prompt) |
 | `procman uninstall` | Completely uninstall procman and stop background processes (`-p, --purge` to delete state/logs) |
-| `procman ui` | Launch full-screen interactive TUI dashboard |
+| `procman ui [-a, --all]` | Launch interactive TUI dashboard (`-a, --all` to open Global view directly) |
 
 ---
 

@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Global TUI Dashboard (`procman ui --all` / `-a` & `Tab` Key Switcher)**:
+  - Interactive TUI dashboard capable of monitoring and controlling active processes across all projects on the entire system.
+  - Seamless `Tab` key shortcut to switch back and forth between Local Project View and Global System Dashboard.
+  - Live log streaming, fullscreen view, search/filtering, QR popup, and stop/kill controls directly on global processes.
+  - Automatic fallback to Global TUI Dashboard when launching `procman ui` outside any repository.
+
 ---
 
 ## [0.1.1] - 2026-08-19
