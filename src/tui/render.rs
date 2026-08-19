@@ -405,7 +405,7 @@ pub fn build_help_spans(state: &AppState) -> Vec<Span<'static>> {
                     .fg(Color::LightMagenta)
                     .add_modifier(Modifier::BOLD),
             ),
-            Span::raw(" local view  "),
+            Span::raw(" project view  "),
             Span::styled(
                 "↑/↓",
                 Style::default()

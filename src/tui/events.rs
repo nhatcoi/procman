@@ -93,18 +93,45 @@ pub fn handle_key(state: &mut AppState, code: KeyCode) -> KeyActionResult {
 
     match code {
         KeyCode::Tab => {
-            if state.local_config.is_some() {
-                state.is_global_mode = !state.is_global_mode;
+            if state.is_global_mode {
+                // Switching from Global Mode to Project Mode
+                let selected_proj_info = state.global_rows.get(state.selected_idx).and_then(|g| {
+                    g.config_path
+                        .as_ref()
+                        .map(|cp| (cp.clone(), g.project_key.clone()))
+                });
+
+                if let Some((cp, p_key)) = selected_proj_info {
+                    if let Ok(cfg) = crate::engine::config::load_config(&cp) {
+                        state.local_config = Some((cp, cfg));
+                        state.is_global_mode = false;
+                        state.selected_idx = 0;
+                        state.scroll_offset = 0;
+                        state.search_query.clear();
+                        state.refresh_rows();
+                        state.status_msg = format!("switched to project: {}", p_key);
+                        return KeyActionResult::Continue;
+                    }
+                }
+
+                if state.local_config.is_some() {
+                    state.is_global_mode = false;
+                    state.selected_idx = 0;
+                    state.scroll_offset = 0;
+                    state.search_query.clear();
+                    state.refresh_rows();
+                    state.status_msg = "switched to Local Project view".to_string();
+                } else {
+                    state.status_msg = "No config found for selected project".to_string();
+                }
+            } else {
+                // Switching from Project Mode to Global Mode
+                state.is_global_mode = true;
                 state.selected_idx = 0;
                 state.scroll_offset = 0;
                 state.search_query.clear();
-                state.status_msg = if state.is_global_mode {
-                    "switched to Global Dashboard (all projects)".to_string()
-                } else {
-                    "switched to Local Project view".to_string()
-                };
-            } else {
-                state.status_msg = "No local procman.yaml (staying in Global View)".to_string();
+                state.refresh_rows();
+                state.status_msg = "switched to Global Dashboard (all projects)".to_string();
             }
         }
         KeyCode::Char('q') | KeyCode::Esc => return KeyActionResult::Break,
