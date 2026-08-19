@@ -444,7 +444,11 @@ pub fn scan_global_processes_with_metrics(
 
         if let Ok(cfg) = super::config::load_config(&proj.config_path) {
             let state = read_state(&proj.config_path);
-            for (service_name, def) in &cfg.processes {
+            let mut service_names: Vec<String> = cfg.processes.keys().cloned().collect();
+            service_names.sort();
+
+            for service_name in &service_names {
+                let def = cfg.processes.get(service_name).unwrap();
                 let proc_entry = state.processes.get(service_name);
                 let alive = proc_entry.map(|p| is_alive(p.pid)).unwrap_or(false);
 
@@ -516,7 +520,12 @@ pub fn scan_global_processes_with_metrics(
                     if state_file.is_file() {
                         if let Ok(content) = fs::read_to_string(&state_file) {
                             if let Ok(state) = serde_json::from_str::<State>(&content) {
-                                for (service_name, proc_entry) in &state.processes {
+                                let mut s_names: Vec<String> =
+                                    state.processes.keys().cloned().collect();
+                                s_names.sort();
+
+                                for service_name in &s_names {
+                                    let proc_entry = state.processes.get(service_name).unwrap();
                                     if is_alive(proc_entry.pid) {
                                         let (cpu, memory_mb) = metrics.query_tree(proc_entry.pid);
                                         let tunnel = state.tunnels.get(service_name);
@@ -549,6 +558,13 @@ pub fn scan_global_processes_with_metrics(
             }
         }
     }
+
+    // Deterministic sort: group by project_key then service_name
+    rows.sort_by(|a, b| {
+        a.project_key
+            .cmp(&b.project_key)
+            .then_with(|| a.service_name.cmp(&b.service_name))
+    });
 
     Ok(rows)
 }

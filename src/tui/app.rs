@@ -66,6 +66,17 @@ impl AppState {
     }
 
     pub fn refresh_rows(&mut self) {
+        // Remember previously selected identifier so cursor doesn't jump
+        let prev_selected_id = if self.is_global_mode {
+            self.global_rows
+                .get(self.selected_idx)
+                .map(|g| format!("{}/{}", g.project_key, g.service_name))
+        } else {
+            self.local_rows
+                .get(self.selected_idx)
+                .map(|r| r.name.clone())
+        };
+
         self.metrics.refresh();
         if let Some((ref cp, ref cfg)) = self.local_config {
             self.local_rows = supervisor::status_with_metrics(cp, cfg, None, &mut self.metrics)
@@ -73,6 +84,21 @@ impl AppState {
         }
         self.global_rows =
             supervisor::scan_global_processes_with_metrics(&mut self.metrics).unwrap_or_default();
+
+        // Restore selected index if previous selection still exists
+        if let Some(ref prev_id) = prev_selected_id {
+            if self.is_global_mode {
+                if let Some(new_idx) = self
+                    .global_rows
+                    .iter()
+                    .position(|r| &format!("{}/{}", r.project_key, r.service_name) == prev_id)
+                {
+                    self.selected_idx = new_idx;
+                }
+            } else if let Some(new_idx) = self.local_rows.iter().position(|r| &r.name == prev_id) {
+                self.selected_idx = new_idx;
+            }
+        }
 
         if let Ok(mut pending) = self.pending_actions.lock() {
             pending.retain(|key, action| {
