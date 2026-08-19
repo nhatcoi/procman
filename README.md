@@ -10,14 +10,22 @@
 
 ### ⚡ One-Line Online Install (Recommended)
 
-#### Option 1: Via Cargo Git (No manual clone needed)
-```bash
-cargo install --git https://github.com/nhatcoi/procman.git --force
-```
-
-#### Option 2: Via Quick Shell Script
+#### Option 1: Via Quick Shell Script (Auto-installs Latest Release)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nhatcoi/procman/main/install.sh | sh
+```
+*To install a specific version (e.g. `v0.1.1`):*
+```bash
+VERSION=v0.1.1 curl -fsSL https://raw.githubusercontent.com/nhatcoi/procman/main/install.sh | sh
+```
+
+#### Option 2: Via Cargo with Release Tag
+```bash
+# Install the latest released version (v0.1.1)
+cargo install --git https://github.com/nhatcoi/procman.git --tag v0.1.1 --force
+
+# Or install bleeding-edge directly from main branch
+cargo install --git https://github.com/nhatcoi/procman.git --force
 ```
 
 ---

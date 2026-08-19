@@ -242,11 +242,18 @@ pub fn run_upgrade(yes: bool) -> Result<()> {
 
     let success = if has_cargo {
         println!("⚙️  Compiling via Cargo...");
+        let tag_name = if latest.starts_with('v') {
+            latest.clone()
+        } else {
+            format!("v{}", latest)
+        };
         let status = Command::new("cargo")
             .args([
                 "install",
                 "--git",
                 &format!("https://github.com/{}.git", GITHUB_REPO),
+                "--tag",
+                &tag_name,
                 "--force",
             ])
             .status();
