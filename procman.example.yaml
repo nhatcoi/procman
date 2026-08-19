@@ -1,0 +1,21 @@
+# Example procman configuration
+processes:
+  api:
+    cmd: "go run ./cmd/server"
+    cwd: "."
+    port: 8080
+    env:
+      PORT: "8080"
+      ENV: "development"
+
+  web:
+    cmd: "npm run dev"
+    cwd: "./web"
+    port: 3000
+    forward: true # Automatically starts Cloudflare quick tunnel when started
+
+  worker:
+    cmd: "python -m worker.main"
+    cwd: "."
+    env:
+      WORKER_COUNT: "2"

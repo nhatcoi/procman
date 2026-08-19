@@ -1,0 +1,31 @@
+[package]
+name = "procman"
+version = "0.1.0"
+edition = "2021"
+description = "Custom process manager: start/stop/log/forward processes from a project config file"
+authors = ["nhatcoi"]
+license = "MIT"
+
+[dependencies]
+clap = { version = "4.5", features = ["derive"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_yaml = "0.9"
+serde_json = "1.0"
+ratatui = "0.29"
+crossterm = "0.28"
+nix = { version = "0.29", features = ["process", "signal"] }
+dirs = "5.0"
+sha1 = "0.10"
+hex = "0.4"
+chrono = "0.4"
+anyhow = "1.0"
+regex = "1.10"
+qrcode = { version = "0.14", default-features = false }
+sysinfo = "0.33"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

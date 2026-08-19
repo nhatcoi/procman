@@ -1,0 +1,17 @@
+# Build artifacts
+target/
+**/*.rs.bk
+
+# Documentation (ignored per user request)
+/docs/
+docs/
+
+# IDE & OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local Procman state/logs
+*.log
