@@ -31,6 +31,8 @@ pub struct ProcessDef {
     pub free_port: bool,
     #[serde(default)]
     pub log_file: Option<String>,
+    #[serde(default)]
+    pub depends_on: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

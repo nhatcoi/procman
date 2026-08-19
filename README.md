@@ -91,12 +91,16 @@ processes:
     cmd: "npm run dev"
     cwd: "./web"
     port: 5173
+    depends_on:
+      - server      # Waits for server port 3001 to open before starting web
     forward: true   # Auto-spawns a Cloudflare tunnel and gives a public URL
 
   # Background Queue Worker
   worker:
     cmd: "python -m worker.main"
     cwd: "./services/worker"
+    depends_on:
+      - server
     env:
       CONCURRENCY: "4"
 ```

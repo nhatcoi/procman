@@ -9,8 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Service Dependency Ordering & Port Probing (`depends_on`)**:
+  - Declarative dependency management in `procman.yaml` (`depends_on: [db, redis]`).
+  - Automatic Topological Sorting and cycle detection (`A -> B -> A` fails fast with clear diagnostic path).
+  - TCP port readiness probing via `std::net::TcpStream::connect_timeout` ensuring upstream dependencies open their listening ports before downstream services are spawned.
+  - Starting a specific service (e.g. `procman start web`) automatically starts and waits for any unstarted upstream dependencies first.
+
 ### Planned
-- **Service Dependency Ordering (`depends_on`)**: Wait for upstream services to open ports or pass health checks before starting downstream dependencies.
 - **File Watcher & Hot Reload (`watch`)**: Auto-restart processes on source code changes using the `notify` crate.
 - **Environment File Loading (`env_file`)**: Automatically load `.env` or `.env.local` files globally or per process.
 - **Auto-Recovery on Crash (`restart: on-failure`)**: Automatically restart failed processes with configurable retry limits (`max_retries`).

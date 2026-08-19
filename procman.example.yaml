@@ -12,10 +12,14 @@ processes:
     cmd: "npm run dev"
     cwd: "./web"
     port: 3000
+    depends_on:
+      - api       # Waits for API port 8080 to open before starting web
     forward: true # Automatically starts Cloudflare quick tunnel when started
 
   worker:
     cmd: "python -m worker.main"
     cwd: "."
+    depends_on:
+      - api
     env:
       WORKER_COUNT: "2"

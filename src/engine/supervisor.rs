@@ -2,7 +2,9 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, OpenOptions};
+use std::net::{SocketAddr, TcpStream};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -18,6 +20,8 @@ use crate::tunnels::cloudflare::forward_start;
 const SIGTERM_TIMEOUT: Duration = Duration::from_millis(1000);
 const SIGKILL_TIMEOUT: Duration = Duration::from_millis(800);
 const POLL_INTERVAL: Duration = Duration::from_millis(30);
+const DEPENDENCY_PORT_TIMEOUT: Duration = Duration::from_secs(30);
+const DEPENDENCY_PROBE_INTERVAL: Duration = Duration::from_millis(150);
 const SHELL_BIN: &str = "sh";
 const LOG_FILE_EXTENSION: &str = "log";
 
@@ -47,6 +51,141 @@ pub fn resolve_names(config: &Config, name: Option<&str>) -> Result<Vec<String>>
         names.sort();
         Ok(names)
     }
+}
+
+pub fn resolve_dependency_order(config: &Config, target_name: Option<&str>) -> Result<Vec<String>> {
+    // 1. Validate all dependency names exist
+    for (name, def) in &config.processes {
+        for dep in &def.depends_on {
+            if !config.processes.contains_key(dep) {
+                return Err(anyhow!(
+                    "Unknown dependency \"{}\" referenced by process \"{}\" (check procman.yaml)",
+                    dep,
+                    name
+                ));
+            }
+        }
+    }
+
+    // 2. Identify the set of needed nodes
+    let mut needed: HashSet<String> = HashSet::new();
+    if let Some(target) = target_name {
+        if !config.processes.contains_key(target) {
+            return Err(anyhow!(
+                "Unknown process \"{}\" (check procman.yaml)",
+                target
+            ));
+        }
+        let mut queue = VecDeque::new();
+        queue.push_back(target.to_string());
+        needed.insert(target.to_string());
+
+        while let Some(current) = queue.pop_front() {
+            if let Some(def) = config.processes.get(&current) {
+                for dep in &def.depends_on {
+                    if needed.insert(dep.clone()) {
+                        queue.push_back(dep.clone());
+                    }
+                }
+            }
+        }
+    } else {
+        needed = config.processes.keys().cloned().collect();
+    }
+
+    // 3. Cycle detection & Topological Sort using DFS
+    let mut visited_state: HashMap<String, u8> = HashMap::new();
+    let mut order: Vec<String> = Vec::new();
+
+    fn dfs(
+        node: &str,
+        config: &Config,
+        needed: &HashSet<String>,
+        visited_state: &mut HashMap<String, u8>,
+        order: &mut Vec<String>,
+        path: &mut Vec<String>,
+    ) -> Result<()> {
+        visited_state.insert(node.to_string(), 1);
+        path.push(node.to_string());
+
+        if let Some(def) = config.processes.get(node) {
+            let mut deps = def.depends_on.clone();
+            deps.sort();
+
+            for dep in &deps {
+                if needed.contains(dep) {
+                    match visited_state.get(dep).copied().unwrap_or(0) {
+                        1 => {
+                            path.push(dep.clone());
+                            let cycle_start = path.iter().position(|p| p == dep).unwrap_or(0);
+                            let cycle_str = path[cycle_start..].join(" -> ");
+                            return Err(anyhow!("Cyclic dependency detected: {}", cycle_str));
+                        }
+                        0 => {
+                            dfs(dep, config, needed, visited_state, order, path)?;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+
+        path.pop();
+        visited_state.insert(node.to_string(), 2);
+        order.push(node.to_string());
+        Ok(())
+    }
+
+    let mut sorted_needed: Vec<String> = needed.iter().cloned().collect();
+    sorted_needed.sort();
+
+    let mut cycle_path: Vec<String> = Vec::new();
+    for node in &sorted_needed {
+        if visited_state.get(node).copied().unwrap_or(0) == 0 {
+            dfs(
+                node,
+                config,
+                &needed,
+                &mut visited_state,
+                &mut order,
+                &mut cycle_path,
+            )?;
+        }
+    }
+
+    Ok(order)
+}
+
+pub fn wait_for_port_ready(port: u16, timeout: Duration) -> bool {
+    let addr_str = format!("127.0.0.1:{}", port);
+    let Ok(socket_addr) = addr_str.parse::<SocketAddr>() else {
+        return false;
+    };
+    let deadline = Instant::now() + timeout;
+    let probe_timeout = Duration::from_millis(150);
+
+    while Instant::now() < deadline {
+        if TcpStream::connect_timeout(&socket_addr, probe_timeout).is_ok() {
+            return true;
+        }
+        thread::sleep(DEPENDENCY_PROBE_INTERVAL);
+    }
+    false
+}
+
+pub fn is_service_ready(config: &Config, name: &str, pid: i32) -> bool {
+    if !is_alive(pid) {
+        return false;
+    }
+    if let Some(def) = config.processes.get(name) {
+        if let Some(port) = def.port {
+            let addr_str = format!("127.0.0.1:{}", port);
+            if let Ok(socket_addr) = addr_str.parse::<SocketAddr>() {
+                return TcpStream::connect_timeout(&socket_addr, Duration::from_millis(60)).is_ok();
+            }
+        }
+    }
+    true
 }
 
 pub fn log_file_for(config_path: &Path, name: &str) -> Result<PathBuf> {
@@ -225,13 +364,84 @@ pub fn start(
     auto_forward: bool,
 ) -> Result<()> {
     let _ = super::registry::ProjectRegistry::register(config_path);
-    let names = resolve_names(config, name)?;
+    let execution_order = resolve_dependency_order(config, name)?;
     let mut state = read_state(config_path);
 
-    for n in &names {
+    for n in &execution_order {
+        // If service is already alive, skip restarting it unless requested
+        if let Some(existing) = state.processes.get(n) {
+            if is_alive(existing.pid) {
+                if let Some(port) = existing.port {
+                    if !is_service_ready(config, n, existing.pid) {
+                        println!(
+                            "   ⏳ Waiting for already running [{}] on port {}...",
+                            n, port
+                        );
+                        let _ = wait_for_port_ready(port, DEPENDENCY_PORT_TIMEOUT);
+                    }
+                }
+                println!("   [{}] already running (PID {})", n, existing.pid);
+                continue;
+            }
+        }
+
+        // Wait for all upstream dependencies of this service to be ready
+        if let Some(def) = config.processes.get(n) {
+            for dep in &def.depends_on {
+                if let Some(dep_proc) = state.processes.get(dep) {
+                    if is_alive(dep_proc.pid) {
+                        if let Some(port) = dep_proc.port {
+                            if !is_service_ready(config, dep, dep_proc.pid) {
+                                println!(
+                                    "   ⏳ Waiting for dependency [{}] to be ready on port {}...",
+                                    dep, port
+                                );
+                                if wait_for_port_ready(port, DEPENDENCY_PORT_TIMEOUT) {
+                                    println!(
+                                        "   ✅ Dependency [{}] is ready on port {}",
+                                        dep, port
+                                    );
+                                } else {
+                                    eprintln!(
+                                        "   ⚠️  Dependency [{}] did not open port {} within 30s (proceeding anyway)",
+                                        dep, port
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         match start_one(config_path, config, n, &mut state) {
             Ok(pid) => {
                 println!("🚀 Started [{}] (PID {})", n, pid);
+
+                // If subsequent services in execution_order depend on this service, wait for its readiness
+                let is_depended_on = execution_order.iter().any(|other| {
+                    config
+                        .processes
+                        .get(other)
+                        .map(|d| d.depends_on.contains(n))
+                        .unwrap_or(false)
+                });
+
+                if is_depended_on {
+                    if let Some(def) = config.processes.get(n) {
+                        if let Some(port) = def.port {
+                            println!("   ⏳ Waiting for [{}] to be ready on port {}...", n, port);
+                            if wait_for_port_ready(port, DEPENDENCY_PORT_TIMEOUT) {
+                                println!("   ✅ [{}] is ready on port {}", n, port);
+                            } else {
+                                eprintln!("   ⚠️  [{}] port {} not open after 30s", n, port);
+                            }
+                        } else {
+                            thread::sleep(Duration::from_millis(300));
+                        }
+                    }
+                }
+
                 if auto_forward {
                     match forward_start(config_path, config, n) {
                         Ok((url, _)) => {
@@ -567,4 +777,105 @@ pub fn scan_global_processes_with_metrics(
     });
 
     Ok(rows)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::engine::config::ProcessDef;
+    use std::collections::HashMap;
+
+    fn make_process_def(depends_on: Vec<&str>) -> ProcessDef {
+        ProcessDef {
+            cmd: "echo test".to_string(),
+            cwd: None,
+            env: HashMap::new(),
+            port: None,
+            forward: false,
+            tunnel: false,
+            free_port: false,
+            log_file: None,
+            depends_on: depends_on.into_iter().map(|s| s.to_string()).collect(),
+        }
+    }
+
+    #[test]
+    fn test_topological_sort_linear() {
+        let mut processes = HashMap::new();
+        processes.insert("web".to_string(), make_process_def(vec!["api"]));
+        processes.insert("api".to_string(), make_process_def(vec!["db"]));
+        processes.insert("db".to_string(), make_process_def(vec![]));
+
+        let config = Config { processes };
+        let order = resolve_dependency_order(&config, None).unwrap();
+
+        let db_pos = order.iter().position(|x| x == "db").unwrap();
+        let api_pos = order.iter().position(|x| x == "api").unwrap();
+        let web_pos = order.iter().position(|x| x == "web").unwrap();
+
+        assert!(db_pos < api_pos);
+        assert!(api_pos < web_pos);
+    }
+
+    #[test]
+    fn test_topological_sort_single_target() {
+        let mut processes = HashMap::new();
+        processes.insert("web".to_string(), make_process_def(vec!["api"]));
+        processes.insert("api".to_string(), make_process_def(vec!["db"]));
+        processes.insert("db".to_string(), make_process_def(vec![]));
+        processes.insert("isolated_worker".to_string(), make_process_def(vec![]));
+
+        let config = Config { processes };
+        let order = resolve_dependency_order(&config, Some("web")).unwrap();
+
+        assert_eq!(order, vec!["db", "api", "web"]);
+        assert!(!order.contains(&"isolated_worker".to_string()));
+    }
+
+    #[test]
+    fn test_topological_sort_diamond() {
+        let mut processes = HashMap::new();
+        processes.insert("web".to_string(), make_process_def(vec!["api1", "api2"]));
+        processes.insert("api1".to_string(), make_process_def(vec!["db"]));
+        processes.insert("api2".to_string(), make_process_def(vec!["db"]));
+        processes.insert("db".to_string(), make_process_def(vec![]));
+
+        let config = Config { processes };
+        let order = resolve_dependency_order(&config, None).unwrap();
+
+        let db_pos = order.iter().position(|x| x == "db").unwrap();
+        let api1_pos = order.iter().position(|x| x == "api1").unwrap();
+        let api2_pos = order.iter().position(|x| x == "api2").unwrap();
+        let web_pos = order.iter().position(|x| x == "web").unwrap();
+
+        assert!(db_pos < api1_pos);
+        assert!(db_pos < api2_pos);
+        assert!(api1_pos < web_pos);
+        assert!(api2_pos < web_pos);
+    }
+
+    #[test]
+    fn test_cycle_detection() {
+        let mut processes = HashMap::new();
+        processes.insert("a".to_string(), make_process_def(vec!["b"]));
+        processes.insert("b".to_string(), make_process_def(vec!["a"]));
+
+        let config = Config { processes };
+        let result = resolve_dependency_order(&config, None);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Cyclic dependency detected"));
+    }
+
+    #[test]
+    fn test_unknown_dependency() {
+        let mut processes = HashMap::new();
+        processes.insert("web".to_string(), make_process_def(vec!["non_existent"]));
+
+        let config = Config { processes };
+        let result = resolve_dependency_order(&config, None);
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("Unknown dependency \"non_existent\""));
+    }
 }

@@ -49,10 +49,14 @@ processes:
     cmd: "npm run dev"
     cwd: "./frontend"
     port: 3000
+    depends_on:
+      - api   # Waits for api port 8000 to open before starting frontend
 
   worker:
     cmd: "python -m worker.main"
     cwd: "./services/worker"
+    depends_on:
+      - api
     env:
       CONCURRENCY: "4"
 ```
