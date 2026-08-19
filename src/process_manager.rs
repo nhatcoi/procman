@@ -16,9 +16,9 @@ use crate::metrics::ProcessMetrics;
 use crate::paths::project_log_dir;
 use crate::state::{is_alive, read_state, write_state, ProcEntry, State};
 
-const SIGTERM_TIMEOUT: Duration = Duration::from_millis(5000);
-const SIGKILL_TIMEOUT: Duration = Duration::from_millis(2000);
-const POLL_INTERVAL: Duration = Duration::from_millis(100);
+const SIGTERM_TIMEOUT: Duration = Duration::from_millis(1000);
+const SIGKILL_TIMEOUT: Duration = Duration::from_millis(800);
+const POLL_INTERVAL: Duration = Duration::from_millis(30);
 const SHELL_BIN: &str = "sh";
 const LOG_FILE_EXTENSION: &str = "log";
 

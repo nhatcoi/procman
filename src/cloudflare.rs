@@ -120,28 +120,50 @@ pub fn forward_start(config_path: &Path, config: &Config, name: &str) -> Result<
         .with_context(|| "Failed to spawn cloudflared tunnel")?;
     let child_pid = child.id() as i32;
 
-    let url = wait_for_url(&log_file, TUNNEL_WAIT_TIMEOUT).ok_or_else(|| {
-        let _ = stop_by_pid(child_pid);
-        anyhow!(
-            "cloudflared didn't report a URL within {}s — check {:?}",
-            TUNNEL_WAIT_TIMEOUT.as_secs(),
-            log_file
-        )
-    })?;
+    // Fast check if URL is already available in 1 pass
+    let immediate_url = if let Ok(content) = fs::read_to_string(&log_file) {
+        Regex::new(QUICK_TUNNEL_URL_REGEX)
+            .ok()
+            .and_then(|re| re.find(&content).map(|m| m.as_str().to_string()))
+    } else {
+        None
+    };
 
     state.tunnels.insert(
         name.to_string(),
         TunnelEntry {
             pid: child_pid,
             port,
-            url: Some(url.clone()),
+            url: immediate_url.clone(),
             log_file: log_file.to_string_lossy().to_string(),
             started_at: Utc::now().to_rfc3339(),
         },
     );
 
     write_state(config_path, &state)?;
-    Ok((url, child_pid))
+
+    // Spawn background poller if URL not yet found
+    if immediate_url.is_none() {
+        let log_file_clone = log_file.clone();
+        let cp_clone = config_path.to_path_buf();
+        let name_clone = name.to_string();
+        thread::spawn(move || {
+            if let Some(discovered_url) = wait_for_url(&log_file_clone, TUNNEL_WAIT_TIMEOUT) {
+                let mut st = read_state(&cp_clone);
+                if let Some(t) = st.tunnels.get_mut(&name_clone) {
+                    if t.pid == child_pid {
+                        t.url = Some(discovered_url);
+                        let _ = write_state(&cp_clone, &st);
+                    }
+                }
+            }
+        });
+    }
+
+    Ok((
+        immediate_url.unwrap_or_else(|| "initializing tunnel...".to_string()),
+        child_pid,
+    ))
 }
 
 pub fn forward_stop(config_path: &Path, name: &str) -> Result<bool> {

@@ -12,8 +12,11 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Row, Table},
     Frame, Terminal,
 };
+use std::collections::HashMap;
 use std::io::stdout;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::thread;
 use std::time::{Duration, Instant};
 
 use crate::cloudflare::{forward_start, forward_stop};
@@ -27,11 +30,12 @@ use crate::qr::render_qr;
 
 const NORMAL_LOG_LINES: usize = 18;
 const FULLSCREEN_LOG_LINES: usize = 500;
-const UI_REFRESH_INTERVAL: Duration = Duration::from_millis(1000);
-const EVENT_POLL_TIMEOUT: Duration = Duration::from_millis(150);
+const UI_REFRESH_INTERVAL: Duration = Duration::from_millis(500);
+const EVENT_POLL_TIMEOUT: Duration = Duration::from_millis(50);
 const SCROLL_STEP_PAGE: usize = 15;
 const DOT_RUNNING: &str = "●";
 const DOT_STOPPED: &str = "○";
+const DOT_PENDING: &str = "⟳";
 const DEFAULT_PLACEHOLDER: &str = "-";
 
 struct AppState {
@@ -45,6 +49,7 @@ struct AppState {
     scroll_offset: usize,
     local_rows: Vec<StatusRow>,
     global_rows: Vec<GlobalProcRow>,
+    pending_actions: Arc<Mutex<HashMap<String, String>>>,
     last_refresh: Instant,
 }
 
@@ -61,6 +66,7 @@ impl AppState {
             scroll_offset: 0,
             local_rows: Vec::new(),
             global_rows: Vec::new(),
+            pending_actions: Arc::new(Mutex::new(HashMap::new())),
             last_refresh: Instant::now() - UI_REFRESH_INTERVAL,
         }
     }
@@ -70,6 +76,39 @@ impl AppState {
             self.local_rows = process_manager::status(cp, cfg, None).unwrap_or_default();
         }
         self.global_rows = process_manager::scan_global_processes().unwrap_or_default();
+
+        // Auto-clear pending actions once the actual status is observed
+        if let Ok(mut pending) = self.pending_actions.lock() {
+            pending.retain(|key, action| {
+                if action == "starting..." {
+                    // if now running, clear pending
+                    let is_up = if let Some(slash_idx) = key.find('/') {
+                        let (p_key, s_name) = key.split_at(slash_idx);
+                        let s_name = &s_name[1..];
+                        self.global_rows.iter().any(|r| {
+                            r.project_key == p_key && r.service_name == s_name && r.running
+                        })
+                    } else {
+                        self.local_rows.iter().any(|r| r.name == *key && r.running)
+                    };
+                    !is_up
+                } else if action == "stopping..." {
+                    let is_down = if let Some(slash_idx) = key.find('/') {
+                        let (p_key, s_name) = key.split_at(slash_idx);
+                        let s_name = &s_name[1..];
+                        self.global_rows.iter().any(|r| {
+                            r.project_key == p_key && r.service_name == s_name && !r.running
+                        })
+                    } else {
+                        self.local_rows.iter().any(|r| r.name == *key && !r.running)
+                    };
+                    !is_down
+                } else {
+                    false
+                }
+            });
+        }
+
         self.last_refresh = Instant::now();
     }
 
@@ -155,31 +194,55 @@ fn highlight_line<'a>(line: &'a str, query: &str) -> Line<'a> {
 }
 
 fn render_global_table(f: &mut Frame, area: Rect, state: &AppState) {
+    let pending_guard = state.pending_actions.lock().ok();
+
     let table_rows: Vec<Row> = state
         .global_rows
         .iter()
         .enumerate()
         .map(|(i, r)| {
             let is_selected = i == state.selected_idx;
-            let dot = if r.running { DOT_RUNNING } else { DOT_STOPPED };
-            let dot_color = if r.running { Color::Green } else { Color::Red };
+            let key = format!("{}/{}", r.project_key, r.service_name);
+            let pending_status = pending_guard.as_ref().and_then(|p| p.get(&key));
 
-            let pid_str = r
-                .pid
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into());
-            let cpu_str = r
-                .cpu
-                .map(|c| format!("{:.1}%", c))
-                .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into());
-            let mem_str = r
-                .memory_mb
-                .map(|m| format!("{}MB", m))
-                .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into());
-            let up_str = r
-                .uptime
-                .clone()
-                .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into());
+            let (dot, dot_color, pid_str) = if let Some(status) = pending_status {
+                (DOT_PENDING, Color::Yellow, status.clone())
+            } else if r.running {
+                (
+                    DOT_RUNNING,
+                    Color::Green,
+                    r.pid
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into()),
+                )
+            } else {
+                (DOT_STOPPED, Color::Red, DEFAULT_PLACEHOLDER.into())
+            };
+
+            let cpu_str = if pending_status.is_some() {
+                DEFAULT_PLACEHOLDER.into()
+            } else {
+                r.cpu
+                    .map(|c| format!("{:.1}%", c))
+                    .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into())
+            };
+
+            let mem_str = if pending_status.is_some() {
+                DEFAULT_PLACEHOLDER.into()
+            } else {
+                r.memory_mb
+                    .map(|m| format!("{}MB", m))
+                    .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into())
+            };
+
+            let up_str = if pending_status.is_some() {
+                DEFAULT_PLACEHOLDER.into()
+            } else {
+                r.uptime
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into())
+            };
+
             let port_str = r
                 .port
                 .map(|p| p.to_string())
@@ -192,7 +255,16 @@ fn render_global_table(f: &mut Frame, area: Rect, state: &AppState) {
                     Span::raw(r.project_key.clone()),
                 ]),
                 Line::from(r.service_name.clone()),
-                Line::from(pid_str),
+                Line::from(if pending_status.is_some() {
+                    Span::styled(
+                        pid_str,
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::ITALIC),
+                    )
+                } else {
+                    Span::raw(pid_str)
+                }),
                 Line::from(cpu_str),
                 Line::from(mem_str),
                 Line::from(up_str),
@@ -213,7 +285,14 @@ fn render_global_table(f: &mut Frame, area: Rect, state: &AppState) {
         .collect();
 
     let header = Row::new(vec![
-        "PROJECT", "SERVICE", "PID", "CPU", "MEM", "UPTIME", "PORT", "TUNNEL",
+        "PROJECT",
+        "SERVICE",
+        "STATUS/PID",
+        "CPU",
+        "MEM",
+        "UPTIME",
+        "PORT",
+        "TUNNEL",
     ])
     .style(
         Style::default()
@@ -226,10 +305,10 @@ fn render_global_table(f: &mut Frame, area: Rect, state: &AppState) {
         [
             Constraint::Percentage(20),
             Constraint::Percentage(14),
-            Constraint::Percentage(8),
-            Constraint::Percentage(8),
-            Constraint::Percentage(8),
-            Constraint::Percentage(10),
+            Constraint::Percentage(11),
+            Constraint::Percentage(7),
+            Constraint::Percentage(7),
+            Constraint::Percentage(9),
             Constraint::Percentage(8),
             Constraint::Percentage(24),
         ],
@@ -249,31 +328,54 @@ fn render_global_table(f: &mut Frame, area: Rect, state: &AppState) {
 }
 
 fn render_local_table(f: &mut Frame, area: Rect, config_path: &Path, state: &AppState) {
+    let pending_guard = state.pending_actions.lock().ok();
+
     let table_rows: Vec<Row> = state
         .local_rows
         .iter()
         .enumerate()
         .map(|(i, r)| {
             let is_selected = i == state.selected_idx;
-            let dot = if r.running { DOT_RUNNING } else { DOT_STOPPED };
-            let dot_color = if r.running { Color::Green } else { Color::Red };
+            let pending_status = pending_guard.as_ref().and_then(|p| p.get(&r.name));
 
-            let pid_str = r
-                .pid
-                .map(|p| p.to_string())
-                .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into());
-            let cpu_str = r
-                .cpu
-                .map(|c| format!("{:.1}%", c))
-                .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into());
-            let mem_str = r
-                .memory_mb
-                .map(|m| format!("{}MB", m))
-                .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into());
-            let up_str = r
-                .uptime
-                .clone()
-                .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into());
+            let (dot, dot_color, pid_str) = if let Some(status) = pending_status {
+                (DOT_PENDING, Color::Yellow, status.clone())
+            } else if r.running {
+                (
+                    DOT_RUNNING,
+                    Color::Green,
+                    r.pid
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into()),
+                )
+            } else {
+                (DOT_STOPPED, Color::Red, DEFAULT_PLACEHOLDER.into())
+            };
+
+            let cpu_str = if pending_status.is_some() {
+                DEFAULT_PLACEHOLDER.into()
+            } else {
+                r.cpu
+                    .map(|c| format!("{:.1}%", c))
+                    .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into())
+            };
+
+            let mem_str = if pending_status.is_some() {
+                DEFAULT_PLACEHOLDER.into()
+            } else {
+                r.memory_mb
+                    .map(|m| format!("{}MB", m))
+                    .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into())
+            };
+
+            let up_str = if pending_status.is_some() {
+                DEFAULT_PLACEHOLDER.into()
+            } else {
+                r.uptime
+                    .clone()
+                    .unwrap_or_else(|| DEFAULT_PLACEHOLDER.into())
+            };
+
             let port_str = r
                 .port
                 .map(|p| p.to_string())
@@ -285,7 +387,16 @@ fn render_local_table(f: &mut Frame, area: Rect, config_path: &Path, state: &App
                     Span::styled(format!("{} ", dot), Style::default().fg(dot_color)),
                     Span::raw(r.name.clone()),
                 ]),
-                Line::from(pid_str),
+                Line::from(if pending_status.is_some() {
+                    Span::styled(
+                        pid_str,
+                        Style::default()
+                            .fg(Color::Yellow)
+                            .add_modifier(Modifier::ITALIC),
+                    )
+                } else {
+                    Span::raw(pid_str)
+                }),
                 Line::from(cpu_str),
                 Line::from(mem_str),
                 Line::from(up_str),
@@ -306,7 +417,13 @@ fn render_local_table(f: &mut Frame, area: Rect, config_path: &Path, state: &App
         .collect();
 
     let header = Row::new(vec![
-        "NAME", "PID", "CPU", "MEM", "UPTIME", "PORT", "TUNNEL",
+        "NAME",
+        "STATUS/PID",
+        "CPU",
+        "MEM",
+        "UPTIME",
+        "PORT",
+        "TUNNEL",
     ])
     .style(
         Style::default()
@@ -317,13 +434,13 @@ fn render_local_table(f: &mut Frame, area: Rect, config_path: &Path, state: &App
     let table = Table::new(
         table_rows,
         [
-            Constraint::Percentage(22),
-            Constraint::Percentage(9),
-            Constraint::Percentage(9),
-            Constraint::Percentage(9),
-            Constraint::Percentage(13),
-            Constraint::Percentage(9),
-            Constraint::Percentage(29),
+            Constraint::Percentage(20),
+            Constraint::Percentage(12),
+            Constraint::Percentage(8),
+            Constraint::Percentage(8),
+            Constraint::Percentage(12),
+            Constraint::Percentage(8),
+            Constraint::Percentage(32),
         ],
     )
     .header(header)
@@ -959,28 +1076,34 @@ fn run_app<B: ratatui::backend::Backend>(
                                 if let Some(g) = state.global_rows.get(state.selected_idx).cloned()
                                 {
                                     if let Some(ref cp) = g.config_path {
-                                        if let Ok(cfg) = crate::config::load_config(cp) {
-                                            let _ = process_manager::start(
-                                                cp,
-                                                &cfg,
-                                                Some(&g.service_name),
-                                                false,
-                                            );
-                                            let local_ref = local_config_opt
-                                                .as_ref()
-                                                .map(|(p, c)| (p.as_path(), c));
-                                            state.refresh_rows(local_ref);
-                                            state.status_msg = format!(
-                                                "started {} in {}",
-                                                g.service_name, g.project_key
-                                            );
-                                        } else {
-                                            state.status_msg =
-                                                format!("failed to load config at {:?}", cp);
+                                        let key = format!("{}/{}", g.project_key, g.service_name);
+                                        if let Ok(mut pending) = state.pending_actions.lock() {
+                                            pending.insert(key, "starting...".to_string());
                                         }
-                                    } else {
-                                        state.status_msg =
-                                            format!("no config path found for {}", g.project_key);
+                                        state.status_msg = format!(
+                                            "⟳ starting {} in {}...",
+                                            g.service_name, g.project_key
+                                        );
+
+                                        let cp_clone = cp.clone();
+                                        let service_clone = g.service_name.clone();
+                                        let pending_clone = Arc::clone(&state.pending_actions);
+                                        let key_clone =
+                                            format!("{}/{}", g.project_key, g.service_name);
+
+                                        thread::spawn(move || {
+                                            if let Ok(cfg) = crate::config::load_config(&cp_clone) {
+                                                let _ = process_manager::start(
+                                                    &cp_clone,
+                                                    &cfg,
+                                                    Some(&service_clone),
+                                                    false,
+                                                );
+                                            }
+                                            if let Ok(mut p) = pending_clone.lock() {
+                                                p.remove(&key_clone);
+                                            }
+                                        });
                                     }
                                 }
                             } else if let Some((ref cp, ref cfg)) = local_config_opt {
@@ -989,12 +1112,28 @@ fn run_app<B: ratatui::backend::Backend>(
                                     .get(state.selected_idx)
                                     .map(|r| r.name.clone())
                                 {
-                                    let _ =
-                                        process_manager::start(cp, cfg, Some(&target_name), false);
-                                    let local_ref =
-                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
-                                    state.refresh_rows(local_ref);
-                                    state.status_msg = format!("{} started", target_name);
+                                    if let Ok(mut pending) = state.pending_actions.lock() {
+                                        pending
+                                            .insert(target_name.clone(), "starting...".to_string());
+                                    }
+                                    state.status_msg = format!("⟳ starting {}...", target_name);
+
+                                    let cp_clone = cp.clone();
+                                    let cfg_clone = cfg.clone();
+                                    let target_clone = target_name.clone();
+                                    let pending_clone = Arc::clone(&state.pending_actions);
+
+                                    thread::spawn(move || {
+                                        let _ = process_manager::start(
+                                            &cp_clone,
+                                            &cfg_clone,
+                                            Some(&target_clone),
+                                            false,
+                                        );
+                                        if let Ok(mut p) = pending_clone.lock() {
+                                            p.remove(&target_clone);
+                                        }
+                                    });
                                 }
                             }
                         }
@@ -1003,22 +1142,34 @@ fn run_app<B: ratatui::backend::Backend>(
                                 if let Some(g) = state.global_rows.get(state.selected_idx).cloned()
                                 {
                                     if let Some(ref cp) = g.config_path {
-                                        if let Ok(cfg) = crate::config::load_config(cp) {
-                                            let _ = process_manager::restart(
-                                                cp,
-                                                &cfg,
-                                                Some(&g.service_name),
-                                                false,
-                                            );
-                                            let local_ref = local_config_opt
-                                                .as_ref()
-                                                .map(|(p, c)| (p.as_path(), c));
-                                            state.refresh_rows(local_ref);
-                                            state.status_msg = format!(
-                                                "restarted {} in {}",
-                                                g.service_name, g.project_key
-                                            );
+                                        let key = format!("{}/{}", g.project_key, g.service_name);
+                                        if let Ok(mut pending) = state.pending_actions.lock() {
+                                            pending.insert(key, "restarting...".to_string());
                                         }
+                                        state.status_msg = format!(
+                                            "⟳ restarting {} in {}...",
+                                            g.service_name, g.project_key
+                                        );
+
+                                        let cp_clone = cp.clone();
+                                        let service_clone = g.service_name.clone();
+                                        let pending_clone = Arc::clone(&state.pending_actions);
+                                        let key_clone =
+                                            format!("{}/{}", g.project_key, g.service_name);
+
+                                        thread::spawn(move || {
+                                            if let Ok(cfg) = crate::config::load_config(&cp_clone) {
+                                                let _ = process_manager::restart(
+                                                    &cp_clone,
+                                                    &cfg,
+                                                    Some(&service_clone),
+                                                    false,
+                                                );
+                                            }
+                                            if let Ok(mut p) = pending_clone.lock() {
+                                                p.remove(&key_clone);
+                                            }
+                                        });
                                     }
                                 }
                             } else if let Some((ref cp, ref cfg)) = local_config_opt {
@@ -1027,16 +1178,30 @@ fn run_app<B: ratatui::backend::Backend>(
                                     .get(state.selected_idx)
                                     .map(|r| r.name.clone())
                                 {
-                                    let _ = process_manager::restart(
-                                        cp,
-                                        cfg,
-                                        Some(&target_name),
-                                        false,
-                                    );
-                                    let local_ref =
-                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
-                                    state.refresh_rows(local_ref);
-                                    state.status_msg = format!("{} restarted", target_name);
+                                    if let Ok(mut pending) = state.pending_actions.lock() {
+                                        pending.insert(
+                                            target_name.clone(),
+                                            "restarting...".to_string(),
+                                        );
+                                    }
+                                    state.status_msg = format!("⟳ restarting {}...", target_name);
+
+                                    let cp_clone = cp.clone();
+                                    let cfg_clone = cfg.clone();
+                                    let target_clone = target_name.clone();
+                                    let pending_clone = Arc::clone(&state.pending_actions);
+
+                                    thread::spawn(move || {
+                                        let _ = process_manager::restart(
+                                            &cp_clone,
+                                            &cfg_clone,
+                                            Some(&target_clone),
+                                            false,
+                                        );
+                                        if let Ok(mut p) = pending_clone.lock() {
+                                            p.remove(&target_clone);
+                                        }
+                                    });
                                 }
                             }
                         }
@@ -1044,24 +1209,39 @@ fn run_app<B: ratatui::backend::Backend>(
                             if state.is_global_mode {
                                 if let Some(g) = state.global_rows.get(state.selected_idx).cloned()
                                 {
-                                    if let Some(ref cp) = g.config_path {
-                                        if let Ok(cfg) = crate::config::load_config(cp) {
-                                            let _ = process_manager::stop(
-                                                cp,
-                                                &cfg,
-                                                Some(&g.service_name),
-                                            );
-                                        } else if let Some(pid) = g.pid {
+                                    let key = format!("{}/{}", g.project_key, g.service_name);
+                                    if let Ok(mut pending) = state.pending_actions.lock() {
+                                        pending.insert(key, "stopping...".to_string());
+                                    }
+                                    state.status_msg = format!(
+                                        "⟳ stopping {} in {}...",
+                                        g.service_name, g.project_key
+                                    );
+
+                                    let cp_opt = g.config_path.clone();
+                                    let service_clone = g.service_name.clone();
+                                    let pid_opt = g.pid;
+                                    let pending_clone = Arc::clone(&state.pending_actions);
+                                    let key_clone = format!("{}/{}", g.project_key, g.service_name);
+
+                                    thread::spawn(move || {
+                                        if let Some(cp) = cp_opt {
+                                            if let Ok(cfg) = crate::config::load_config(&cp) {
+                                                let _ = process_manager::stop(
+                                                    &cp,
+                                                    &cfg,
+                                                    Some(&service_clone),
+                                                );
+                                            } else if let Some(pid) = pid_opt {
+                                                let _ = stop_by_pid(pid);
+                                            }
+                                        } else if let Some(pid) = pid_opt {
                                             let _ = stop_by_pid(pid);
                                         }
-                                    } else if let Some(pid) = g.pid {
-                                        let _ = stop_by_pid(pid);
-                                    }
-                                    let local_ref =
-                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
-                                    state.refresh_rows(local_ref);
-                                    state.status_msg =
-                                        format!("stopped {} in {}", g.service_name, g.project_key);
+                                        if let Ok(mut p) = pending_clone.lock() {
+                                            p.remove(&key_clone);
+                                        }
+                                    });
                                 }
                             } else if let Some((ref cp, ref cfg)) = local_config_opt {
                                 if let Some(target_name) = state
@@ -1069,11 +1249,27 @@ fn run_app<B: ratatui::backend::Backend>(
                                     .get(state.selected_idx)
                                     .map(|r| r.name.clone())
                                 {
-                                    let _ = process_manager::stop(cp, cfg, Some(&target_name));
-                                    let local_ref =
-                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
-                                    state.refresh_rows(local_ref);
-                                    state.status_msg = format!("{} stopped", target_name);
+                                    if let Ok(mut pending) = state.pending_actions.lock() {
+                                        pending
+                                            .insert(target_name.clone(), "stopping...".to_string());
+                                    }
+                                    state.status_msg = format!("⟳ stopping {}...", target_name);
+
+                                    let cp_clone = cp.clone();
+                                    let cfg_clone = cfg.clone();
+                                    let target_clone = target_name.clone();
+                                    let pending_clone = Arc::clone(&state.pending_actions);
+
+                                    thread::spawn(move || {
+                                        let _ = process_manager::stop(
+                                            &cp_clone,
+                                            &cfg_clone,
+                                            Some(&target_clone),
+                                        );
+                                        if let Ok(mut p) = pending_clone.lock() {
+                                            p.remove(&target_clone);
+                                        }
+                                    });
                                 }
                             }
                         }
@@ -1081,32 +1277,46 @@ fn run_app<B: ratatui::backend::Backend>(
                             if state.is_global_mode {
                                 if let Some(g) = state.global_rows.get(state.selected_idx).cloned()
                                 {
-                                    if let Some(ref cp) = g.config_path {
-                                        if let Ok(cfg) = crate::config::load_config(cp) {
-                                            let _ = process_manager::force_stop(
-                                                cp,
-                                                &cfg,
-                                                Some(&g.service_name),
-                                            );
-                                        } else if let Some(pid) = g.pid {
+                                    let key = format!("{}/{}", g.project_key, g.service_name);
+                                    if let Ok(mut pending) = state.pending_actions.lock() {
+                                        pending.insert(key, "killing...".to_string());
+                                    }
+                                    state.status_msg = format!(
+                                        "🛑 force-killing {} in {}...",
+                                        g.service_name, g.project_key
+                                    );
+
+                                    let cp_opt = g.config_path.clone();
+                                    let service_clone = g.service_name.clone();
+                                    let pid_opt = g.pid;
+                                    let port_opt = g.port;
+                                    let pending_clone = Arc::clone(&state.pending_actions);
+                                    let key_clone = format!("{}/{}", g.project_key, g.service_name);
+
+                                    thread::spawn(move || {
+                                        if let Some(cp) = cp_opt {
+                                            if let Ok(cfg) = crate::config::load_config(&cp) {
+                                                let _ = process_manager::force_stop(
+                                                    &cp,
+                                                    &cfg,
+                                                    Some(&service_clone),
+                                                );
+                                            } else if let Some(pid) = pid_opt {
+                                                let _ = force_kill_by_pid(pid);
+                                                if let Some(port) = port_opt {
+                                                    process_manager::kill_port(port);
+                                                }
+                                            }
+                                        } else if let Some(pid) = pid_opt {
                                             let _ = force_kill_by_pid(pid);
-                                            if let Some(port) = g.port {
+                                            if let Some(port) = port_opt {
                                                 process_manager::kill_port(port);
                                             }
                                         }
-                                    } else if let Some(pid) = g.pid {
-                                        let _ = force_kill_by_pid(pid);
-                                        if let Some(port) = g.port {
-                                            process_manager::kill_port(port);
+                                        if let Ok(mut p) = pending_clone.lock() {
+                                            p.remove(&key_clone);
                                         }
-                                    }
-                                    let local_ref =
-                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
-                                    state.refresh_rows(local_ref);
-                                    state.status_msg = format!(
-                                        "force-killed {} in {}",
-                                        g.service_name, g.project_key
-                                    );
+                                    });
                                 }
                             } else if let Some((ref cp, ref cfg)) = local_config_opt {
                                 if let Some(target_name) = state
@@ -1114,13 +1324,28 @@ fn run_app<B: ratatui::backend::Backend>(
                                     .get(state.selected_idx)
                                     .map(|r| r.name.clone())
                                 {
-                                    let _ =
-                                        process_manager::force_stop(cp, cfg, Some(&target_name));
-                                    let local_ref =
-                                        local_config_opt.as_ref().map(|(p, c)| (p.as_path(), c));
-                                    state.refresh_rows(local_ref);
+                                    if let Ok(mut pending) = state.pending_actions.lock() {
+                                        pending
+                                            .insert(target_name.clone(), "killing...".to_string());
+                                    }
                                     state.status_msg =
-                                        format!("{} force-killed & port freed", target_name);
+                                        format!("🛑 force-killing {}...", target_name);
+
+                                    let cp_clone = cp.clone();
+                                    let cfg_clone = cfg.clone();
+                                    let target_clone = target_name.clone();
+                                    let pending_clone = Arc::clone(&state.pending_actions);
+
+                                    thread::spawn(move || {
+                                        let _ = process_manager::force_stop(
+                                            &cp_clone,
+                                            &cfg_clone,
+                                            Some(&target_clone),
+                                        );
+                                        if let Ok(mut p) = pending_clone.lock() {
+                                            p.remove(&target_clone);
+                                        }
+                                    });
                                 }
                             }
                         }
@@ -1132,10 +1357,6 @@ fn run_app<B: ratatui::backend::Backend>(
                                         if let Ok(cfg) = crate::config::load_config(cp) {
                                             match forward_start(cp, &cfg, &g.service_name) {
                                                 Ok((url, _)) => {
-                                                    let local_ref = local_config_opt
-                                                        .as_ref()
-                                                        .map(|(p, c)| (p.as_path(), c));
-                                                    state.refresh_rows(local_ref);
                                                     state.status_msg =
                                                         format!("{} -> {}", g.service_name, url);
                                                 }
@@ -1155,10 +1376,6 @@ fn run_app<B: ratatui::backend::Backend>(
                                 {
                                     match forward_start(cp, cfg, &target_name) {
                                         Ok((url, _)) => {
-                                            let local_ref = local_config_opt
-                                                .as_ref()
-                                                .map(|(p, c)| (p.as_path(), c));
-                                            state.refresh_rows(local_ref);
                                             state.status_msg =
                                                 format!("{} -> {}", target_name, url);
                                         }
@@ -1176,10 +1393,6 @@ fn run_app<B: ratatui::backend::Backend>(
                                     if let Some(ref cp) = g.config_path {
                                         match forward_stop(cp, &g.service_name) {
                                             Ok(stopped) => {
-                                                let local_ref = local_config_opt
-                                                    .as_ref()
-                                                    .map(|(p, c)| (p.as_path(), c));
-                                                state.refresh_rows(local_ref);
                                                 state.status_msg = if stopped {
                                                     format!("tunnel stopped for {}", g.service_name)
                                                 } else {
@@ -1201,10 +1414,6 @@ fn run_app<B: ratatui::backend::Backend>(
                                 {
                                     match forward_stop(cp, &target_name) {
                                         Ok(stopped) => {
-                                            let local_ref = local_config_opt
-                                                .as_ref()
-                                                .map(|(p, c)| (p.as_path(), c));
-                                            state.refresh_rows(local_ref);
                                             state.status_msg = if stopped {
                                                 format!("tunnel stopped for {}", target_name)
                                             } else {

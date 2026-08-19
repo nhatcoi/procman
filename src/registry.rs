@@ -117,7 +117,11 @@ mod tests {
         let loaded: ProjectRegistry = serde_json::from_str(&json).unwrap();
         assert_eq!(loaded.projects.len(), 1);
         assert_eq!(
-            loaded.projects.get("test-app-12345678").unwrap().project_name,
+            loaded
+                .projects
+                .get("test-app-12345678")
+                .unwrap()
+                .project_name,
             "test-app"
         );
     }
