@@ -5,7 +5,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::paths::{project_key, registry_file_path};
+use super::paths::{project_key, registry_file_path};
 
 fn current_timestamp() -> u64 {
     SystemTime::now()

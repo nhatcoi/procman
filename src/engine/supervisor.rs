@@ -1,20 +1,19 @@
 use anyhow::{anyhow, Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use nix::sys::signal::{kill, Signal};
 use nix::unistd::Pid;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::cloudflare::forward_start;
-use crate::config::{Config, ProcessDef};
-use crate::metrics::ProcessMetrics;
-use crate::paths::project_log_dir;
-use crate::state::{is_alive, read_state, write_state, ProcEntry, State};
+use super::config::Config;
+use super::metrics::ProcessMetrics;
+use super::paths::project_log_dir;
+use super::state::{is_alive, read_state, write_state, ProcEntry, State};
+use crate::tunnels::cloudflare::forward_start;
 
 const SIGTERM_TIMEOUT: Duration = Duration::from_millis(1000);
 const SIGKILL_TIMEOUT: Duration = Duration::from_millis(800);
@@ -108,65 +107,75 @@ pub fn force_kill_by_pid(pid: i32) -> Result<()> {
     Ok(())
 }
 
-pub fn start_one(
-    config_path: &Path,
-    name: &str,
-    def: &ProcessDef,
-    state: &mut State,
-    force: bool,
-) -> Result<ProcEntry> {
+fn resolve_cwd(config_path: &Path, rel_or_abs: Option<&str>) -> PathBuf {
+    let base = config_path.parent().unwrap_or(config_path);
+    match rel_or_abs {
+        Some(p) => {
+            let path = Path::new(p);
+            if path.is_absolute() {
+                path.to_path_buf()
+            } else {
+                base.join(path)
+            }
+        }
+        None => base.to_path_buf(),
+    }
+}
+
+fn start_one(config_path: &Path, config: &Config, name: &str, state: &mut State) -> Result<i32> {
+    let def = config
+        .processes
+        .get(name)
+        .ok_or_else(|| anyhow!("Process \"{}\" not found in config", name))?;
+
     if let Some(existing) = state.processes.get(name) {
         if is_alive(existing.pid) {
-            return Ok(existing.clone());
+            println!(
+                "   [{}] already running (PID {}) — use `procman restart` to restart",
+                name, existing.pid
+            );
+            return Ok(existing.pid);
         }
     }
 
-    let should_free_port =
-        force || def.free_port.unwrap_or(false) || def.kill_before_run.unwrap_or(false);
-
-    if should_free_port {
+    if def.free_port {
         if let Some(port) = def.port {
             kill_port(port);
         }
     }
 
-    let config_dir = config_path.parent().unwrap_or(config_path);
-    let cwd = match &def.cwd {
-        Some(c) => config_dir.join(c),
-        None => config_dir.to_path_buf(),
-    };
-    let abs_cwd = fs::canonicalize(&cwd).unwrap_or(cwd);
-
+    let cwd = resolve_cwd(config_path, def.cwd.as_deref());
     let log_file = log_file_for(config_path, name)?;
+
     let header = format!(
         "\n----- procman start: {} @ {} -----\n$ {}\n",
         name,
         Utc::now().to_rfc3339(),
         def.cmd
     );
-
     let mut log_fd = OpenOptions::new()
         .create(true)
         .append(true)
         .open(&log_file)
         .with_context(|| format!("Failed to open log file {:?}", log_file))?;
+
+    use std::io::Write;
     let _ = log_fd.write_all(header.as_bytes());
 
-    let log_fd_out = OpenOptions::new().append(true).open(&log_file)?;
-    let log_fd_err = OpenOptions::new().append(true).open(&log_file)?;
+    let log_fd_err = log_fd
+        .try_clone()
+        .with_context(|| "Failed to clone log file descriptor")?;
 
     let mut cmd = Command::new(SHELL_BIN);
     cmd.arg("-c")
         .arg(&def.cmd)
-        .current_dir(&abs_cwd)
+        .current_dir(&cwd)
         .stdin(Stdio::null())
-        .stdout(Stdio::from(log_fd_out))
+        .stdout(Stdio::from(log_fd))
         .stderr(Stdio::from(log_fd_err));
 
-    if let Some(ref env_vars) = def.env {
-        for (k, v) in env_vars {
-            cmd.env(k, v);
-        }
+    for (k, v) in &def.env {
+        cmd.env(k, v);
     }
 
     unsafe {
@@ -178,116 +187,149 @@ pub fn start_one(
 
     let child = cmd
         .spawn()
-        .with_context(|| format!("Failed to spawn process \"{}\"", name))?;
-    let child_pid = child.id() as i32;
+        .with_context(|| format!("Failed to spawn command for \"{}\"", name))?;
+    let pid = child.id() as i32;
 
-    let entry = ProcEntry {
-        pid: child_pid,
-        cmd: def.cmd.clone(),
-        cwd: abs_cwd.to_string_lossy().to_string(),
-        log_file: log_file.to_string_lossy().to_string(),
-        port: def.port,
-        started_at: Utc::now().to_rfc3339(),
-    };
+    thread::sleep(POLL_INTERVAL);
+    if !is_alive(pid) {
+        return Err(anyhow!(
+            "Process \"{}\" exited immediately after spawn — check logs at {:?}",
+            name,
+            log_file
+        ));
+    }
 
-    state.processes.insert(name.to_string(), entry.clone());
-    Ok(entry)
+    state.processes.insert(
+        name.to_string(),
+        ProcEntry {
+            pid,
+            cmd: def.cmd.clone(),
+            cwd: cwd.to_string_lossy().to_string(),
+            port: def.port,
+            started_at: Utc::now().to_rfc3339(),
+            log_file: log_file.to_string_lossy().to_string(),
+        },
+    );
+
+    if def.forward || def.tunnel {
+        let _ = forward_start(config_path, config, name);
+    }
+
+    Ok(pid)
 }
 
 pub fn start(
     config_path: &Path,
     config: &Config,
     name: Option<&str>,
-    force: bool,
-) -> Result<Vec<StatusRow>> {
-    let mut state = read_state(config_path);
+    auto_forward: bool,
+) -> Result<()> {
+    let _ = super::registry::ProjectRegistry::register(config_path);
     let names = resolve_names(config, name)?;
+    let mut state = read_state(config_path);
 
     for n in &names {
-        if let Some(def) = config.processes.get(n) {
-            start_one(config_path, n, def, &mut state, force)?;
-        }
-    }
-    write_state(config_path, &state)?;
-
-    for n in &names {
-        if let Some(def) = config.processes.get(n) {
-            if def.forward.unwrap_or(false) || def.tunnel.unwrap_or(false) {
-                if let Err(err) = forward_start(config_path, config, n) {
-                    eprintln!("[procman] tunnel warning for \"{}\": {}", n, err);
+        match start_one(config_path, config, n, &mut state) {
+            Ok(pid) => {
+                println!("🚀 Started [{}] (PID {})", n, pid);
+                if auto_forward {
+                    match forward_start(config_path, config, n) {
+                        Ok((url, _)) => {
+                            println!("   🌐 Cloudflare Tunnel: {}", url);
+                        }
+                        Err(e) => {
+                            eprintln!("   ⚠️  Tunnel failed to start: {}", e);
+                        }
+                    }
                 }
             }
-        }
-    }
-
-    status(config_path, config, name)
-}
-
-pub fn stop(config_path: &Path, config: &Config, name: Option<&str>) -> Result<Vec<StatusRow>> {
-    let mut state = read_state(config_path);
-    let names = resolve_names(config, name)?;
-
-    for n in &names {
-        if let Some(entry) = state.processes.remove(n) {
-            if is_alive(entry.pid) {
-                let _ = stop_by_pid(entry.pid);
-            }
-        }
-        if let Some(tunnel) = state.tunnels.remove(n) {
-            if is_alive(tunnel.pid) {
-                let _ = stop_by_pid(tunnel.pid);
+            Err(e) => {
+                eprintln!("❌ Failed to start [{}]: {}", n, e);
             }
         }
     }
+
     write_state(config_path, &state)?;
-    status(config_path, config, name)
+    Ok(())
 }
 
-pub fn force_stop(
-    config_path: &Path,
-    config: &Config,
-    name: Option<&str>,
-) -> Result<Vec<StatusRow>> {
-    let mut state = read_state(config_path);
-    let names = resolve_names(config, name)?;
-
-    for n in &names {
-        if let Some(def) = config.processes.get(n) {
-            if let Some(port) = def.port {
+fn stop_one(name: &str, state: &mut State, force: bool) -> Result<()> {
+    if let Some(entry) = state.processes.remove(name) {
+        if is_alive(entry.pid) {
+            if force {
+                force_kill_by_pid(entry.pid)?;
+                println!("🛑 Force-killed [{}] (PID {})", name, entry.pid);
+            } else {
+                stop_by_pid(entry.pid)?;
+                println!("🛑 Stopped [{}] (PID {})", name, entry.pid);
+            }
+        } else {
+            println!("   [{}] was not running (cleaned up stale state)", name);
+        }
+        if force {
+            if let Some(port) = entry.port {
                 kill_port(port);
             }
         }
-        if let Some(entry) = state.processes.remove(n) {
-            let _ = force_kill_by_pid(entry.pid);
-        }
-        if let Some(tunnel) = state.tunnels.remove(n) {
-            let _ = force_kill_by_pid(tunnel.pid);
+    } else {
+        println!("   [{}] is not tracked as running", name);
+    }
+
+    if let Some(tunnel) = state.tunnels.remove(name) {
+        if is_alive(tunnel.pid) {
+            let _ = stop_by_pid(tunnel.pid);
         }
     }
+
+    Ok(())
+}
+
+pub fn stop(config_path: &Path, config: &Config, name: Option<&str>) -> Result<()> {
+    let _ = super::registry::ProjectRegistry::register(config_path);
+    let names = resolve_names(config, name)?;
+    let mut state = read_state(config_path);
+
+    for n in &names {
+        stop_one(n, &mut state, false)?;
+    }
+
     write_state(config_path, &state)?;
-    status(config_path, config, name)
+    Ok(())
+}
+
+pub fn force_stop(config_path: &Path, config: &Config, name: Option<&str>) -> Result<()> {
+    let _ = super::registry::ProjectRegistry::register(config_path);
+    let names = resolve_names(config, name)?;
+    let mut state = read_state(config_path);
+
+    for n in &names {
+        stop_one(n, &mut state, true)?;
+    }
+
+    write_state(config_path, &state)?;
+    Ok(())
 }
 
 pub fn restart(
     config_path: &Path,
     config: &Config,
     name: Option<&str>,
-    force: bool,
-) -> Result<Vec<StatusRow>> {
-    if force {
-        force_stop(config_path, config, name)?;
-    } else {
-        stop(config_path, config, name)?;
-    }
-    start(config_path, config, name, force)
+    auto_forward: bool,
+) -> Result<()> {
+    stop(config_path, config, name)?;
+    thread::sleep(Duration::from_millis(200));
+    start(config_path, config, name, auto_forward)?;
+    Ok(())
 }
 
-fn uptime_string(started_at_str: &str) -> String {
-    let started_at = DateTime::parse_from_rfc3339(started_at_str)
-        .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(|_| Utc::now());
-    let dur = Utc::now().signed_duration_since(started_at);
-    let secs = dur.num_seconds().max(0);
+pub fn uptime_string(started_at_rfc3339: &str) -> String {
+    let Ok(started) = chrono::DateTime::parse_from_rfc3339(started_at_rfc3339) else {
+        return "-".to_string();
+    };
+    let now = Utc::now();
+    let duration = now.signed_duration_since(started);
+    let secs = duration.num_seconds().max(0);
+
     if secs < 60 {
         format!("{}s", secs)
     } else if secs < 3600 {
@@ -308,7 +350,7 @@ pub fn status_with_metrics(
     name: Option<&str>,
     metrics: &mut ProcessMetrics,
 ) -> Result<Vec<StatusRow>> {
-    let _ = crate::registry::ProjectRegistry::register(config_path);
+    let _ = super::registry::ProjectRegistry::register(config_path);
     let state = read_state(config_path);
     let names = resolve_names(config, name)?;
 
@@ -393,14 +435,14 @@ pub fn scan_global_processes_with_metrics(
     let mut processed_keys = std::collections::HashSet::new();
 
     // 1. Scan from Known Projects Registry
-    let registry = crate::registry::ProjectRegistry::load();
+    let registry = super::registry::ProjectRegistry::load();
     for proj in registry.get_all() {
         if !proj.config_path.is_file() {
             continue;
         }
         processed_keys.insert(proj.project_key.clone());
 
-        if let Ok(cfg) = crate::config::load_config(&proj.config_path) {
+        if let Ok(cfg) = super::config::load_config(&proj.config_path) {
             let state = read_state(&proj.config_path);
             for (service_name, def) in &cfg.processes {
                 let proc_entry = state.processes.get(service_name);
@@ -455,7 +497,7 @@ pub fn scan_global_processes_with_metrics(
     }
 
     // 2. Scan active process states in ~/.local/state/procman/ that might not be in registry
-    let state_root = crate::paths::global_state_root();
+    let state_root = super::paths::global_state_root();
     if state_root.is_dir() {
         if let Ok(entries) = fs::read_dir(&state_root) {
             for entry in entries.flatten() {
@@ -507,12 +549,6 @@ pub fn scan_global_processes_with_metrics(
             }
         }
     }
-
-    rows.sort_by(|a, b| {
-        a.project_key
-            .cmp(&b.project_key)
-            .then_with(|| a.service_name.cmp(&b.service_name))
-    });
 
     Ok(rows)
 }

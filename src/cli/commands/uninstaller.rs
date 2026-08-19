@@ -4,10 +4,10 @@ use std::fs;
 use std::io::{self, Write};
 use std::process::Command;
 
-use crate::paths::{global_data_root, global_state_root};
-use crate::process_manager::{force_kill_by_pid, scan_global_processes};
+use crate::engine::paths::{global_data_root, global_state_root};
+use crate::engine::supervisor::{force_kill_by_pid, scan_global_processes};
 
-pub fn run_uninstall(yes: bool, purge: bool) -> Result<()> {
+pub fn execute(yes: bool, purge: bool) -> Result<()> {
     println!("⚠️  Preparing to uninstall procman...");
 
     let all_procs = scan_global_processes()?;
@@ -69,39 +69,30 @@ pub fn run_uninstall(yes: bool, purge: bool) -> Result<()> {
         }
     }
 
-    println!("\n🗑️  Removing procman executable...");
-    let mut removed = false;
-
-    if let Ok(exe_path) = env::current_exe() {
-        if exe_path.is_file() && fs::remove_file(&exe_path).is_ok() {
-            println!("   Removed executable at {:?}", exe_path);
-            removed = true;
-        }
-    }
-
-    if let Some(home) = dirs::home_dir() {
-        let cargo_bin = home.join(".cargo").join("bin").join("procman");
-        if cargo_bin.is_file() && fs::remove_file(&cargo_bin).is_ok() {
-            println!("   Removed executable at {:?}", cargo_bin);
-            removed = true;
-        }
-        let local_bin = home.join(".local").join("bin").join("procman");
-        if local_bin.is_file() && fs::remove_file(&local_bin).is_ok() {
-            println!("   Removed executable at {:?}", local_bin);
-            removed = true;
-        }
-    }
-
-    let _ = Command::new("cargo")
+    println!("\n🗑️  Removing procman binary via cargo uninstall...");
+    let status = Command::new("cargo")
         .args(["uninstall", "procman"])
-        .output();
+        .status();
 
-    if removed {
-        println!("\n✅ procman has been successfully uninstalled from your system.");
-    } else {
-        println!("\n✅ procman cleanup complete.");
-        println!("   If the binary still exists on your PATH, you can remove it manually with: `rm $(which procman)`");
+    match status {
+        Ok(s) if s.success() => {
+            println!("   Successfully uninstalled procman via cargo.");
+        }
+        _ => {
+            println!("   Note: `cargo uninstall procman` did not succeed or procman was installed manually.");
+            if let Ok(current_exe) = env::current_exe() {
+                if let Err(e) = fs::remove_file(&current_exe) {
+                    println!(
+                        "   Could not remove binary at {:?}: {}. Please remove manually.",
+                        current_exe, e
+                    );
+                } else {
+                    println!("   Removed binary at {:?}", current_exe);
+                }
+            }
+        }
     }
 
+    println!("\n✨ procman uninstalled successfully. Thank you for using procman!");
     Ok(())
 }

@@ -8,10 +8,10 @@ use std::process::{Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use crate::config::Config;
-use crate::paths::project_log_dir;
-use crate::process_manager::stop_by_pid;
-use crate::state::{is_alive, read_state, write_state, TunnelEntry};
+use crate::engine::config::Config;
+use crate::engine::paths::project_log_dir;
+use crate::engine::state::{is_alive, read_state, write_state, TunnelEntry};
+use crate::engine::supervisor::stop_by_pid;
 
 const CLOUDFLARED_BIN: &str = "cloudflared";
 const QUICK_TUNNEL_URL_REGEX: &str = r"https://[a-zA-Z0-9-]+\.trycloudflare\.com";
