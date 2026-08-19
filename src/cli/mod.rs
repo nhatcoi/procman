@@ -21,6 +21,7 @@ pub fn dispatch(cli: Cli) -> Result<()> {
             follow,
             lines,
         }) => commands::logs::execute(name, follow, lines),
+        Some(Commands::Watch { name }) => commands::watch::execute(name),
         Some(Commands::Forward { name }) => commands::status::execute_forward(name),
         Some(Commands::Unforward { name }) => commands::status::execute_unforward(name),
         Some(Commands::Ui { all }) => crate::tui::render_ui(all),

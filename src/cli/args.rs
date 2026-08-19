@@ -62,6 +62,11 @@ pub enum Commands {
         #[arg(short = 'n', long, default_value_t = 100)]
         lines: usize,
     },
+    /// Watch files and auto-restart processes on source code changes
+    Watch {
+        /// Optional name of a specific process to watch (watches all configured processes if omitted)
+        name: Option<String>,
+    },
     /// Start a Cloudflare Quick Tunnel for a service
     Forward {
         /// Process name to forward (must have a port defined)

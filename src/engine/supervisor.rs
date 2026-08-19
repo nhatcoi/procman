@@ -796,6 +796,8 @@ mod tests {
             free_port: false,
             log_file: None,
             depends_on: depends_on.into_iter().map(|s| s.to_string()).collect(),
+            watch: None,
+            watch_ignore: vec![],
         }
     }
 

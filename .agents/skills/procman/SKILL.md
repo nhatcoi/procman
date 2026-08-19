@@ -79,6 +79,7 @@ Execute `procman` commands from within the project directory (or any subfolder; 
 | **Kill Port** | `procman kill-port <port>` | Force kills whatever process is occupying a specific port |
 | **Restart All** | `procman restart` | Stops and re-starts all processes |
 | **Restart One** | `procman restart <name>` | Restarts a single process |
+| **Watch & Reload** | `procman watch [name]` | Watches source files and auto-restarts processes on change |
 
 ### Status & Inspection
 

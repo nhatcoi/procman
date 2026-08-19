@@ -15,9 +15,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatic Topological Sorting and cycle detection (`A -> B -> A` fails fast with clear diagnostic path).
   - TCP port readiness probing via `std::net::TcpStream::connect_timeout` ensuring upstream dependencies open their listening ports before downstream services are spawned.
   - Starting a specific service (e.g. `procman start web`) automatically starts and waits for any unstarted upstream dependencies first.
+- **Live File Watcher & Hot Reload (`watch` / `procman watch`)**:
+  - Cross-platform file watcher powered by the `notify` crate.
+  - Automatic process restart upon source code change with a 350ms debounce window.
+  - Built-in noise and artifact filtering (`.git`, `target`, `node_modules`, `logs`, `.procman`, `.tmp`).
+  - Declarative configuration in `procman.yaml` (`watch: true` or `watch: ["src"]`, `watch_ignore: ["temp"]`) and CLI command `procman watch [name]`.
 
 ### Planned
-- **File Watcher & Hot Reload (`watch`)**: Auto-restart processes on source code changes using the `notify` crate.
 - **Environment File Loading (`env_file`)**: Automatically load `.env` or `.env.local` files globally or per process.
 - **Auto-Recovery on Crash (`restart: on-failure`)**: Automatically restart failed processes with configurable retry limits (`max_retries`).
 - **Pre-Start Tasks (`pre_start`)**: Execute prerequisite commands (e.g. database migrations, assets build) prior to launching the main process.

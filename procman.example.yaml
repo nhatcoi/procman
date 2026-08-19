@@ -4,6 +4,10 @@ processes:
     cmd: "go run ./cmd/server"
     cwd: "."
     port: 8080
+    watch: true   # Auto-restarts api when Go files in project change
+    watch_ignore:
+      - "tmp"
+      - "*.sqlite"
     env:
       PORT: "8080"
       ENV: "development"
@@ -21,5 +25,7 @@ processes:
     cwd: "."
     depends_on:
       - api
+    watch:
+      - "worker"  # Watches only the worker directory
     env:
       WORKER_COUNT: "2"

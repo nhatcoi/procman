@@ -14,6 +14,13 @@ const CONFIG_FILENAMES: &[&str] = &[
     ".procman.json",
 ];
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum WatchConfig {
+    Enabled(bool),
+    Paths(Vec<String>),
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProcessDef {
     pub cmd: String,
@@ -33,6 +40,28 @@ pub struct ProcessDef {
     pub log_file: Option<String>,
     #[serde(default)]
     pub depends_on: Vec<String>,
+    #[serde(default)]
+    pub watch: Option<WatchConfig>,
+    #[serde(default)]
+    pub watch_ignore: Vec<String>,
+}
+
+impl ProcessDef {
+    pub fn is_watch_enabled(&self) -> bool {
+        match &self.watch {
+            Some(WatchConfig::Enabled(b)) => *b,
+            Some(WatchConfig::Paths(paths)) => !paths.is_empty(),
+            None => false,
+        }
+    }
+
+    pub fn get_watch_paths(&self) -> Vec<String> {
+        match &self.watch {
+            Some(WatchConfig::Enabled(true)) => vec![".".to_string()],
+            Some(WatchConfig::Paths(paths)) => paths.clone(),
+            _ => vec![],
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,4 +118,42 @@ pub fn require_config() -> Result<(PathBuf, Config)> {
 
     let config = load_config(&config_path)?;
     Ok((config_path, config))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_watch_config_deserialization_bool() {
+        let yaml = r#"
+processes:
+  api:
+    cmd: "cargo run"
+    watch: true
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let api = config.processes.get("api").unwrap();
+        assert!(api.is_watch_enabled());
+        assert_eq!(api.get_watch_paths(), vec!["."]);
+    }
+
+    #[test]
+    fn test_watch_config_deserialization_paths() {
+        let yaml = r#"
+processes:
+  api:
+    cmd: "cargo run"
+    watch:
+      - "src"
+      - "Cargo.toml"
+    watch_ignore:
+      - "target"
+"#;
+        let config: Config = serde_yaml::from_str(yaml).unwrap();
+        let api = config.processes.get("api").unwrap();
+        assert!(api.is_watch_enabled());
+        assert_eq!(api.get_watch_paths(), vec!["src", "Cargo.toml"]);
+        assert_eq!(api.watch_ignore, vec!["target"]);
+    }
 }

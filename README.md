@@ -160,6 +160,18 @@ procman logs server -n 50
 procman ui
 ```
 
+### Step 7: Live File Watching & Auto-Reload (`procman watch`)
+
+Automatically restart processes whenever source code files change with built-in 350ms debouncing and noise filtering:
+
+```bash
+# Watch all configured processes
+procman watch
+
+# Watch only a specific service
+procman watch server
+```
+
 ---
 
 ## ⌨️ TUI Keyboard Shortcuts (`procman ui`)
