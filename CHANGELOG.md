@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Planned
+- **Environment File Loading (`env_file`)**: Automatically load `.env` or `.env.local` files globally or per process.
+- **Auto-Recovery on Crash (`restart: on-failure`)**: Automatically restart failed processes with configurable retry limits (`max_retries`).
+- **Pre-Start Tasks (`pre_start`)**: Execute prerequisite commands (e.g. database migrations, assets build) prior to launching the main process.
+- **Project Initializer (`procman init`)**: Auto-detect project tech stack (Node.js, Go, Python, Rust, Docker) and generate a ready-to-use `procman.yaml`.
+- **Diagnostic Assistant (`procman doctor <name>`)**: Analyze recent log lines to diagnose crash reasons and recommend fixes.
+
+---
+
+## [0.1.3] - 2026-08-20
+
 ### Added
 - **Service Dependency Ordering & Port Probing (`depends_on`)**:
   - Declarative dependency management in `procman.yaml` (`depends_on: [db, redis]`).
@@ -20,13 +31,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatic process restart upon source code change with a 350ms debounce window.
   - Built-in noise and artifact filtering (`.git`, `target`, `node_modules`, `logs`, `.procman`, `.tmp`).
   - Declarative configuration in `procman.yaml` (`watch: true` or `watch: ["src"]`, `watch_ignore: ["temp"]`) and CLI command `procman watch [name]`.
-
-### Planned
-- **Environment File Loading (`env_file`)**: Automatically load `.env` or `.env.local` files globally or per process.
-- **Auto-Recovery on Crash (`restart: on-failure`)**: Automatically restart failed processes with configurable retry limits (`max_retries`).
-- **Pre-Start Tasks (`pre_start`)**: Execute prerequisite commands (e.g. database migrations, assets build) prior to launching the main process.
-- **Project Initializer (`procman init`)**: Auto-detect project tech stack (Node.js, Go, Python, Rust, Docker) and generate a ready-to-use `procman.yaml`.
-- **Diagnostic Assistant (`procman doctor <name>`)**: Analyze recent log lines to diagnose crash reasons and recommend fixes.
+- **Installation Telemetry & Repository Views Tracking**:
+  - Anonymous installation ping in `install.sh` and repository page view counter badge in `README.md`.
 
 ---
 

@@ -17,15 +17,15 @@
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nhatcoi/procman/main/install.sh | sh
 ```
-*To install a specific version (e.g. `v0.1.1`):*
+*To install a specific version (e.g. `v0.1.3`):*
 ```bash
-VERSION=v0.1.1 curl -fsSL https://raw.githubusercontent.com/nhatcoi/procman/main/install.sh | sh
+VERSION=v0.1.3 curl -fsSL https://raw.githubusercontent.com/nhatcoi/procman/main/install.sh | sh
 ```
 
 #### Option 2: Via Cargo with Release Tag
 ```bash
-# Install the latest released version (v0.1.1)
-cargo install --git https://github.com/nhatcoi/procman.git --tag v0.1.1 --force
+# Install the latest released version (v0.1.3)
+cargo install --git https://github.com/nhatcoi/procman.git --tag v0.1.3 --force
 
 # Or install bleeding-edge directly from main branch
 cargo install --git https://github.com/nhatcoi/procman.git --force
