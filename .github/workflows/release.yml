@@ -35,6 +35,9 @@ jobs:
           - os: macos-14
             target: aarch64-apple-darwin
             artifact_name: procman-aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: procman-x86_64-pc-windows-msvc
 
     steps:
       - name: Checkout repository
@@ -50,6 +53,7 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross
 
       - name: Build binary
+        shell: bash
         run: |
           if [ "${{ matrix.use_cross }}" = "true" ]; then
             cross build --release --target ${{ matrix.target }}
@@ -60,17 +64,25 @@ jobs:
       - name: Package artifacts
         shell: bash
         run: |
-          BIN_PATH="target/${{ matrix.target }}/release/procman"
-          ARCHIVE="${{ matrix.artifact_name }}.tar.gz"
-          
           mkdir -p stage
-          cp "$BIN_PATH" stage/
-          tar -czvf "$ARCHIVE" -C stage procman
+          if [ -f "target/${{ matrix.target }}/release/procman.exe" ]; then
+            BIN_PATH="target/${{ matrix.target }}/release/procman.exe"
+            ARCHIVE="${{ matrix.artifact_name }}.zip"
+            cp "$BIN_PATH" stage/
+            cd stage && 7z a "../$ARCHIVE" procman.exe && cd ..
+          else
+            BIN_PATH="target/${{ matrix.target }}/release/procman"
+            ARCHIVE="${{ matrix.artifact_name }}.tar.gz"
+            cp "$BIN_PATH" stage/
+            tar -czvf "$ARCHIVE" -C stage procman
+          fi
           
           if command -v sha256sum >/dev/null 2>&1; then
             sha256sum "$ARCHIVE" > "$ARCHIVE.sha256"
-          else
+          elif command -v shasum >/dev/null 2>&1; then
             shasum -a 256 "$ARCHIVE" > "$ARCHIVE.sha256"
+          else
+            powershell -Command "Get-FileHash -Algorithm SHA256 $ARCHIVE | ForEach-Object { \$_.Hash.ToLower() + '  ' + \$_.Path } | Out-File -Encoding ascii $ARCHIVE.sha256"
           fi
 
       - name: Upload to GitHub Release
@@ -78,5 +90,4 @@ jobs:
         with:
           tag_name: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag }}
           files: |
-            ${{ matrix.artifact_name }}.tar.gz
-            ${{ matrix.artifact_name }}.tar.gz.sha256
+            ${{ matrix.artifact_name }}.*

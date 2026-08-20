@@ -1,10 +1,13 @@
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
+#[cfg(unix)]
 use nix::sys::signal::{kill, Signal};
+#[cfg(unix)]
 use nix::unistd::Pid;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::net::{SocketAddr, TcpStream};
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -18,11 +21,22 @@ use super::state::{is_alive, read_state, write_state, ProcEntry, State};
 use crate::tunnels::cloudflare::forward_start;
 
 const SIGTERM_TIMEOUT: Duration = Duration::from_millis(1000);
+#[cfg(unix)]
 const SIGKILL_TIMEOUT: Duration = Duration::from_millis(800);
 const POLL_INTERVAL: Duration = Duration::from_millis(30);
 const DEPENDENCY_PORT_TIMEOUT: Duration = Duration::from_secs(30);
 const DEPENDENCY_PROBE_INTERVAL: Duration = Duration::from_millis(150);
+
+#[cfg(unix)]
 const SHELL_BIN: &str = "sh";
+#[cfg(unix)]
+const SHELL_FLAG: &str = "-c";
+
+#[cfg(windows)]
+const SHELL_BIN: &str = "cmd.exe";
+#[cfg(windows)]
+const SHELL_FLAG: &str = "/C";
+
 const LOG_FILE_EXTENSION: &str = "log";
 
 #[derive(Debug, Clone)]
@@ -192,6 +206,7 @@ pub fn log_file_for(config_path: &Path, name: &str) -> Result<PathBuf> {
     Ok(project_log_dir(config_path)?.join(format!("{}.{}", name, LOG_FILE_EXTENSION)))
 }
 
+#[cfg(unix)]
 fn kill_group(pid: i32, signal: Signal, timeout: Duration) -> Result<()> {
     if pid <= 0 {
         return Ok(());
@@ -205,6 +220,25 @@ fn kill_group(pid: i32, signal: Signal, timeout: Duration) -> Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+fn kill_group(pid: i32, timeout: Duration) -> Result<()> {
+    if pid <= 0 {
+        return Ok(());
+    }
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+
+    let deadline = Instant::now() + timeout;
+    while is_alive(pid) && Instant::now() < deadline {
+        thread::sleep(POLL_INTERVAL);
+    }
+    Ok(())
+}
+
+#[cfg(unix)]
 pub fn kill_port(port: u16) {
     if port == 0 {
         return;
@@ -226,6 +260,23 @@ pub fn kill_port(port: u16) {
         .status();
 }
 
+#[cfg(windows)]
+pub fn kill_port(port: u16) {
+    if port == 0 {
+        return;
+    }
+    let _ = Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-Command",
+            &format!("Get-NetTCPConnection -LocalPort {} -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess | ForEach-Object {{ Stop-Process -Id $_ -Force -ErrorAction SilentlyContinue }}", port),
+        ])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+#[cfg(unix)]
 pub fn stop_by_pid(pid: i32) -> Result<()> {
     if !is_alive(pid) {
         return Ok(());
@@ -237,12 +288,35 @@ pub fn stop_by_pid(pid: i32) -> Result<()> {
     Ok(())
 }
 
+#[cfg(windows)]
+pub fn stop_by_pid(pid: i32) -> Result<()> {
+    if !is_alive(pid) {
+        return Ok(());
+    }
+    kill_group(pid, SIGTERM_TIMEOUT)?;
+    Ok(())
+}
+
+#[cfg(unix)]
 pub fn force_kill_by_pid(pid: i32) -> Result<()> {
     if pid <= 0 {
         return Ok(());
     }
     let _ = kill(Pid::from_raw(-pid), Signal::SIGKILL);
     let _ = kill(Pid::from_raw(pid), Signal::SIGKILL);
+    Ok(())
+}
+
+#[cfg(windows)]
+pub fn force_kill_by_pid(pid: i32) -> Result<()> {
+    if pid <= 0 {
+        return Ok(());
+    }
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
     Ok(())
 }
 
@@ -306,7 +380,7 @@ fn start_one(config_path: &Path, config: &Config, name: &str, state: &mut State)
         .with_context(|| "Failed to clone log file descriptor")?;
 
     let mut cmd = Command::new(SHELL_BIN);
-    cmd.arg("-c")
+    cmd.arg(SHELL_FLAG)
         .arg(&def.cmd)
         .current_dir(&cwd)
         .stdin(Stdio::null())
@@ -317,11 +391,20 @@ fn start_one(config_path: &Path, config: &Config, name: &str, state: &mut State)
         cmd.env(k, v);
     }
 
+    #[cfg(unix)]
     unsafe {
         cmd.pre_exec(|| {
             nix::unistd::setsid().map_err(|e| std::io::Error::from_raw_os_error(e as i32))?;
             Ok(())
         });
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+        const DETACHED_PROCESS: u32 = 0x00000008;
+        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
     }
 
     let child = cmd

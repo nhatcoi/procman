@@ -16,12 +16,18 @@
 
 Automatically downloads and installs the pre-compiled standalone binary for your OS (Linux x86_64/ARM64, macOS Intel/Apple Silicon) in seconds:
 
+#### Linux & macOS (sh / curl)
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nhatcoi/procman/main/install.sh | sh
 ```
 *To install a specific version (e.g. `v0.1.3`):*
 ```bash
 VERSION=v0.1.3 curl -fsSL https://raw.githubusercontent.com/nhatcoi/procman/main/install.sh | sh
+```
+
+#### Windows (PowerShell)
+```powershell
+irm https://raw.githubusercontent.com/nhatcoi/procman/main/install.ps1 | iex
 ```
 
 #### Option 2: Via Cargo with Release Tag

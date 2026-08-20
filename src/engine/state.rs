@@ -1,10 +1,13 @@
 use anyhow::Result;
-use nix::sys::signal::kill;
-use nix::unistd::Pid;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+
+#[cfg(unix)]
+use nix::sys::signal::kill;
+#[cfg(unix)]
+use nix::unistd::Pid;
 
 use super::paths::state_file_path;
 
@@ -39,11 +42,23 @@ pub struct State {
     pub tunnels: HashMap<String, TunnelEntry>,
 }
 
+#[cfg(unix)]
 pub fn is_alive(pid: i32) -> bool {
     if pid <= 0 {
         return false;
     }
     kill(Pid::from_raw(pid), None).is_ok()
+}
+
+#[cfg(windows)]
+pub fn is_alive(pid: i32) -> bool {
+    if pid <= 0 {
+        return false;
+    }
+    let mut sys = sysinfo::System::new();
+    let sys_pid = sysinfo::Pid::from_u32(pid as u32);
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[sys_pid]), true);
+    sys.process(sys_pid).is_some()
 }
 
 pub fn read_state(config_path: &Path) -> State {

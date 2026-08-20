@@ -2,6 +2,7 @@ use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use regex::Regex;
 use std::fs::{self, OpenOptions};
+#[cfg(unix)]
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -108,11 +109,20 @@ pub fn forward_start(config_path: &Path, config: &Config, name: &str) -> Result<
         .stdout(Stdio::from(log_fd))
         .stderr(Stdio::from(log_fd_err));
 
+    #[cfg(unix)]
     unsafe {
         cmd.pre_exec(|| {
             nix::unistd::setsid().map_err(|e| std::io::Error::from_raw_os_error(e as i32))?;
             Ok(())
         });
+    }
+
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+        const DETACHED_PROCESS: u32 = 0x00000008;
+        cmd.creation_flags(CREATE_NEW_PROCESS_GROUP | DETACHED_PROCESS);
     }
 
     let child = cmd
