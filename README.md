@@ -12,9 +12,10 @@
 
 ## 🚀 Installation & Setup
 
-### ⚡ One-Line Online Install (Recommended)
+### ⚡ One-Line Online Install (Recommended - No Rust/Cargo required)
 
-#### Option 1: Via Quick Shell Script (Auto-installs Latest Release)
+Automatically downloads and installs the pre-compiled standalone binary for your OS (Linux x86_64/ARM64, macOS Intel/Apple Silicon) in seconds:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nhatcoi/procman/main/install.sh | sh
 ```

@@ -15,3 +15,7 @@ docs/
 
 # Local Procman state/logs
 *.log
+
+# Release packaging artifacts
+*.tar.gz
+*.sha256
