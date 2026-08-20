@@ -28,6 +28,9 @@ else
     exit 1
 fi
 
+# Track anonymous install hit
+curl -s "https://hits.sh/github.com/nhatcoi/procman-install.svg" >/dev/null 2>&1 || true
+
 echo ""
 echo "==> procman installed successfully to $INSTALL_DIR/procman"
 echo "==> Verify by running:"

@@ -1,5 +1,8 @@
 # procman
 
+[![Installs](https://hits.sh/github.com/nhatcoi/procman-install.svg?label=installs&color=4c1)](https://hits.sh/github.com/nhatcoi/procman-install/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 > **A high-performance, daemonless background process manager and runner for local development written in Rust.**
 
 `procman` allows you to manage multi-service development stacks (backend APIs, frontend dev servers, background workers, watchers) defined in a single `procman.yaml` file. It features sub-millisecond startups, realtime CPU/RAM monitoring, Cloudflare quick tunneling with mobile QR codes, and an interactive TUI dashboard.
