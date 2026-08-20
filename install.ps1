@@ -34,6 +34,14 @@ Remove-Item -Path $TempZip -Force -ErrorAction SilentlyContinue
 Remove-Item -Path $TempExtract -Recurse -Force -ErrorAction SilentlyContinue
 
 
+try {
+    $AllReleases = Invoke-RestMethod -Uri "https://api.github.com/repos/$Repo/releases"
+    $TotalDownloads = ($AllReleases.assets.download_count | Measure-Object -Sum).Sum
+    if ($TotalDownloads -gt 0) {
+        Write-Host "==> Total release downloads: #$TotalDownloads"
+    }
+} catch {}
+
 Write-Host ""
 Write-Host "==> procman installed successfully to $InstallDir\procman.exe" -ForegroundColor Green
 Write-Host "==> Make sure $InstallDir is in your User PATH."
