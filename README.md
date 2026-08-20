@@ -2,6 +2,7 @@
 
 [![Views](https://hits.sh/github.com/nhatcoi/procman.svg?label=views&color=007ec6)](https://hits.sh/github.com/nhatcoi/procman/)
 [![Downloads](https://img.shields.io/github/downloads/nhatcoi/procman/total?label=downloads&color=4c1)](https://github.com/nhatcoi/procman/releases)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Support-orange?style=flat&logo=buy-me-a-coffee)](https://buymeacoffee.com/nhatcoi)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > **A high-performance, daemonless background process manager and runner for local development written in Rust.**
@@ -238,6 +239,16 @@ procman watch server
 | `free_port` | `boolean` | No | Automatically kills any process occupying this port before starting |
 | `forward` | `boolean` | No | Automatically spawns a Cloudflare tunnel on start (default: `false`) |
 | `env` | `map` | No | Key-value map of environment variables |
+
+---
+
+## 💖 Support the Project
+
+If you find `procman` helpful and want to support its active development:
+
+<a href="https://buymeacoffee.com/nhatcoi" target="_blank">
+  <img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" alt="Buy Me A Coffee" height="42">
+</a>
 
 ---
 
