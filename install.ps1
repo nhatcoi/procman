@@ -33,10 +33,6 @@ Move-Item -Path "$TempExtract\procman.exe" -Destination "$InstallDir\procman.exe
 Remove-Item -Path $TempZip -Force -ErrorAction SilentlyContinue
 Remove-Item -Path $TempExtract -Recurse -Force -ErrorAction SilentlyContinue
 
-# Ping anonymous install count
-try {
-    Invoke-WebRequest -Uri "https://hits.sh/github.com/nhatcoi/procman-install.svg" -UseBasicParsing | Out-Null
-} catch {}
 
 Write-Host ""
 Write-Host "==> procman installed successfully to $InstallDir\procman.exe" -ForegroundColor Green

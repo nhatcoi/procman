@@ -81,14 +81,8 @@ if [ "$INSTALLED" -eq 0 ]; then
     fi
 fi
 
-# Track anonymous install hit and fetch current count
-INSTALL_COUNT=$(curl -s "https://hits.sh/github.com/nhatcoi/procman-install.svg" 2>/dev/null | grep -o '<title>[^<]*</title>' | sed -E 's/.*: *([0-9]+).*/\1/' || true)
-
 echo ""
 echo "==> procman installed successfully to $INSTALL_DIR/procman"
-if [ -n "$INSTALL_COUNT" ]; then
-    echo "==> Total installations: #$INSTALL_COUNT"
-fi
 echo "==> Verify by running:"
 echo "    export PATH=\"$INSTALL_DIR:\$PATH\""
 echo "    procman --version"
