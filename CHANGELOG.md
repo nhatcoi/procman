@@ -31,8 +31,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Automatic process restart upon source code change with a 350ms debounce window.
   - Built-in noise and artifact filtering (`.git`, `target`, `node_modules`, `logs`, `.procman`, `.tmp`).
   - Declarative configuration in `procman.yaml` (`watch: true` or `watch: ["src"]`, `watch_ignore: ["temp"]`) and CLI command `procman watch [name]`.
-- **Installation Telemetry & Repository Views Tracking**:
-  - Anonymous installation ping in `install.sh` and repository page view counter badge in `README.md`.
+- **Cross-Platform OS Support (Linux, macOS, Windows)**:
+  - Full native support for Windows (`x86_64-pc-windows-msvc`), macOS (Intel & Apple Silicon), and Linux (x86_64 & ARM64).
+  - Cross-platform process detachment, tree termination (`taskkill` on Windows, POSIX process groups on Unix), and port clearance.
+  - Dedicated PowerShell installer `install.ps1` for Windows users.
+- **In-App First-Run Telemetry (`engine::telemetry`)**:
+  - Embedded non-blocking anonymous first-run ping executed once per unique installation.
+  - Opt-out support via `DO_NOT_TRACK=1` and `PROCMAN_NO_TELEMETRY=1`.
+- **Repository Views & Release Downloads Tracking**:
+  - Read-only GitHub Release downloads badge and repo views counter in `README.md`.
 
 ---
 
