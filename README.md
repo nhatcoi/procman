@@ -1,7 +1,7 @@
 # procman
 
 [![Views](https://hits.sh/github.com/nhatcoi/procman.svg?label=views&color=007ec6)](https://hits.sh/github.com/nhatcoi/procman/)
-[![Installs](https://hits.sh/github.com/nhatcoi/procman-install.svg?label=installs&color=4c1)](https://hits.sh/github.com/nhatcoi/procman-install/)
+[![Downloads](https://img.shields.io/github/downloads/nhatcoi/procman/total?label=downloads&color=4c1)](https://github.com/nhatcoi/procman/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 > **A high-performance, daemonless background process manager and runner for local development written in Rust.**
