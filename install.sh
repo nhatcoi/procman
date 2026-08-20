@@ -81,8 +81,14 @@ if [ "$INSTALLED" -eq 0 ]; then
     fi
 fi
 
+# Fetch total download count from GitHub Releases API
+TOTAL_DOWNLOADS=$(curl -fsSL "https://api.github.com/repos/$REPO/releases" 2>/dev/null | grep '"download_count":' | tr -cd '0-9\n' | awk '{s+=$1} END {print s}' || true)
+
 echo ""
 echo "==> procman installed successfully to $INSTALL_DIR/procman"
+if [ -n "$TOTAL_DOWNLOADS" ] && [ "$TOTAL_DOWNLOADS" -gt 0 ] 2>/dev/null; then
+    echo "==> Total installations: #$TOTAL_DOWNLOADS"
+fi
 echo "==> Verify by running:"
 echo "    export PATH=\"$INSTALL_DIR:\$PATH\""
 echo "    procman --version"
