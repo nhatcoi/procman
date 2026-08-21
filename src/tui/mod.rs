@@ -38,8 +38,10 @@ fn run_app<B: ratatui::backend::Backend>(
     terminal: &mut Terminal<B>,
     start_all: bool,
 ) -> Result<()> {
-    let local_config =
-        find_config_path(None).and_then(|p| load_config(&p).ok().map(|cfg| (p, cfg)));
+    let local_config = find_config_path(None).and_then(|p| {
+        let _ = crate::engine::registry::ProjectRegistry::register(&p);
+        load_config(&p).ok().map(|cfg| (p, cfg))
+    });
 
     let mut state = AppState::new(start_all, local_config);
 

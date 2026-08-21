@@ -9,12 +9,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Dual-Mode Diagnostic Assistant & Auto-Fixer (`procman doctor [name] [-s] [--ai] [-f]`)**:
+  - **Interactive 2-Option Selector**: Default menu prompting between `[1] Spot Check` (fast rule scanner) and `[2] AI Check` (deep AI process analysis & health assessment).
+  - **Spot Check Mode (`-s, --spot`)**: Instant offline rule engine (< 1ms) matching 24+ signature patterns (ports, missing packages, exit codes, DB connection issues, OOM 137).
+  - **AI Check Mode (`--ai`)**: System-wide process health snapshot analyzing logs and runtime status (even for active/running services) and returning a concise, visual Markdown table, key findings, and actionable fix commands using local AI agent CLIs (`claude`, `gemini`, `agy`, `codex`, `ollama`).
+  - **Automated Remediation (`--fix` / `-f`)**: Interactively prompts or automatically executes the suggested fix commands.
+- **Automatic Project Scanner & Config Generator (`procman init [dir] [--ai] [-y]`)**:
+  - **Heuristic Scanner**: Automatically inspects codebase structure and manifest files (`package.json`, `Cargo.toml`, `go.mod`, `docker-compose.yml`, `pyproject.toml`, `requirements.txt`, `Makefile`, `.env`) to detect frontend, backend, workers, and database dependencies.
+  - **Monorepo / Multi-Service Support**: Automatically detects subprojects in `apps/*`, `packages/*`, `frontend/`, `backend/`, `api/`, setting proper `cwd` and port conventions.
+  - **AI-Powered Config Generation (`--ai`)**: Generates optimized, production-grade `procman.yaml` configurations using local AI coding assistants (`claude`, `gemini`, `agy`, `codex`, `ollama`) with automatic YAML syntax validation.
+  - **Interactive Preview & Safe Overwrite**: Displays clean configuration preview and confirms before writing (`-y` to skip, `-f` to overwrite).
+- **Model Context Protocol (MCP) Server (`procman mcp [-d <dir>]`)**:
+  - **Standardized JSON-RPC 2.0 stdio Transport**: Connects autonomous AI coding assistants (Antigravity, Cursor, Claude Code, Codex, Windsurf) to local procman instances.
+  - **Comprehensive Tool Suite (9 Tools)**: `procman_status`, `procman_start`, `procman_stop`, `procman_restart`, `procman_logs`, `procman_doctor`, `procman_kill_port`, `procman_ps`, `procman_init`.
+  - **Dynamic Resources**: Exposes `procman://processes` (structured process status) and `procman://logs/{name}` (live log stream) for agent context injection.
+- **AI Agent Skill Subcommand (`procman skill`)**:
+  - Native CLI subcommand to install the procman AI agent skill (`.agents/skills/procman/SKILL.md`) into any project.
+  - Fully self-contained via compile-time `include_str!` embedding without requiring external shell scripts or internet connectivity.
+  - Automatically handles destination directory resolution, parent folder creation, and up-to-date checks.
+
+### Fixed
+- **Global Dashboard Automatic Project Discovery & Auto-Healing**:
+  - Automatically recovers and registers un-registered or historical projects from state directories (`~/.local/state/procman/*`) by resolving their configuration path from `state.json` or process working directories (`cwd`).
+  - Ensures stopped services from all known/historical projects are always visible in the Global Dashboard (`procman ui --all` / `procman ps`) and can be managed directly.
+  - Persists `config_path` in `state.json` on state save and auto-registers local projects when starting TUI or running CLI commands.
+
 ### Planned
 - **Environment File Loading (`env_file`)**: Automatically load `.env` or `.env.local` files globally or per process.
 - **Auto-Recovery on Crash (`restart: on-failure`)**: Automatically restart failed processes with configurable retry limits (`max_retries`).
 - **Pre-Start Tasks (`pre_start`)**: Execute prerequisite commands (e.g. database migrations, assets build) prior to launching the main process.
-- **Project Initializer (`procman init`)**: Auto-detect project tech stack (Node.js, Go, Python, Rust, Docker) and generate a ready-to-use `procman.yaml`.
-- **Diagnostic Assistant (`procman doctor <name>`)**: Analyze recent log lines to diagnose crash reasons and recommend fixes.
+- **Zero-Config AI Initializer (`procman init`)**: Auto-detect project tech stack and generate complete, dependency-aware `procman.yaml`.
+- **Model Context Protocol Server (`procman mcp`)**: Standard MCP interface enabling AI coding assistants to manage background processes natively.
+- **TUI Embedded AI Assistant (`procman ui` Ask Modal)**: In-dashboard AI assistant to query runtime metrics and inspect crash logs interactively.
+
+
+
 
 ---
 

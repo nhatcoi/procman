@@ -19,3 +19,4 @@ docs/
 # Release packaging artifacts
 *.tar.gz
 *.sha256
+*.zip

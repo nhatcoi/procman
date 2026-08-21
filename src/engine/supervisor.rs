@@ -4,6 +4,7 @@ use chrono::Utc;
 use nix::sys::signal::{kill, Signal};
 #[cfg(unix)]
 use nix::unistd::Pid;
+use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::fs::{self, OpenOptions};
 use std::net::{SocketAddr, TcpStream};
@@ -39,7 +40,7 @@ const SHELL_FLAG: &str = "/C";
 
 const LOG_FILE_EXTENSION: &str = "log";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[allow(dead_code)]
 pub struct StatusRow {
     pub name: String,
@@ -701,7 +702,7 @@ pub fn status_with_metrics(
     Ok(rows)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct GlobalProcRow {
     pub project_key: String,
     pub service_name: String,
@@ -793,19 +794,19 @@ pub fn scan_global_processes_with_metrics(
         }
     }
 
-    // 2. Scan active process states in ~/.local/state/procman/ that might not be in registry
+    // 2. Scan and auto-discover projects from ~/.local/state/procman/ that might not be in registry
     let state_root = super::paths::global_state_root();
     if state_root.is_dir() {
         if let Ok(entries) = fs::read_dir(&state_root) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    let project_key = path
+                    let dir_key = path
                         .file_name()
                         .map(|s| s.to_string_lossy().to_string())
                         .unwrap_or_default();
 
-                    if processed_keys.contains(&project_key) {
+                    if processed_keys.contains(&dir_key) {
                         continue;
                     }
 
@@ -813,6 +814,105 @@ pub fn scan_global_processes_with_metrics(
                     if state_file.is_file() {
                         if let Ok(content) = fs::read_to_string(&state_file) {
                             if let Ok(state) = serde_json::from_str::<State>(&content) {
+                                // Try to locate config_path from state.config_path or proc.cwd
+                                let discovered_config: Option<PathBuf> = state
+                                    .config_path
+                                    .as_ref()
+                                    .and_then(|p: &PathBuf| if p.is_file() { Some(p.clone()) } else { None })
+                                    .or_else(|| {
+                                        for proc in state.processes.values() {
+                                            if let Some(cp) = super::config::find_config_path(Some(
+                                                Path::new(&proc.cwd),
+                                            )) {
+                                                return Some(cp);
+                                            }
+                                        }
+                                        None
+                                    });
+
+                                if let Some(ref config_path) = discovered_config {
+                                    if let Ok(cfg) = super::config::load_config(config_path) {
+                                        let _ = super::registry::ProjectRegistry::register(config_path);
+                                        let actual_key = super::paths::project_key(config_path)
+                                            .unwrap_or_else(|_| dir_key.clone());
+                                        processed_keys.insert(actual_key.clone());
+                                        processed_keys.insert(dir_key.clone());
+
+                                        let project_dir = config_path
+                                            .parent()
+                                            .map(|p| p.to_path_buf())
+                                            .unwrap_or_else(|| config_path.clone());
+                                        let mut service_names: Vec<String> =
+                                            cfg.processes.keys().cloned().collect();
+                                        service_names.sort();
+
+                                        for service_name in &service_names {
+                                            let def = cfg.processes.get(service_name).unwrap();
+                                            let proc_entry = state.processes.get(service_name);
+                                            let alive = proc_entry
+                                                .map(|p| is_alive(p.pid))
+                                                .unwrap_or(false);
+
+                                            if alive {
+                                                let p = proc_entry.unwrap();
+                                                let (cpu, memory_mb) = metrics.query_tree(p.pid);
+                                                let tunnel = state.tunnels.get(service_name);
+                                                let tunnel_url = if tunnel
+                                                    .map(|t| is_alive(t.pid))
+                                                    .unwrap_or(false)
+                                                {
+                                                    tunnel.and_then(|t| t.url.clone())
+                                                } else {
+                                                    None
+                                                };
+
+                                                rows.push(GlobalProcRow {
+                                                    project_key: actual_key.clone(),
+                                                    service_name: service_name.clone(),
+                                                    running: true,
+                                                    pid: Some(p.pid),
+                                                    cpu,
+                                                    memory_mb,
+                                                    uptime: Some(uptime_string(&p.started_at)),
+                                                    port: p.port.or(def.port),
+                                                    tunnel_url,
+                                                    cwd: p.cwd.clone(),
+                                                    config_path: Some(config_path.clone()),
+                                                });
+                                            } else {
+                                                let default_cwd = def
+                                                    .cwd
+                                                    .as_ref()
+                                                    .map(|c| {
+                                                        project_dir
+                                                            .join(c)
+                                                            .to_string_lossy()
+                                                            .to_string()
+                                                    })
+                                                    .unwrap_or_else(|| {
+                                                        project_dir.to_string_lossy().to_string()
+                                                    });
+
+                                                rows.push(GlobalProcRow {
+                                                    project_key: actual_key.clone(),
+                                                    service_name: service_name.clone(),
+                                                    running: false,
+                                                    pid: None,
+                                                    cpu: None,
+                                                    memory_mb: None,
+                                                    uptime: None,
+                                                    port: def.port,
+                                                    tunnel_url: None,
+                                                    cwd: default_cwd,
+                                                    config_path: Some(config_path.clone()),
+                                                });
+                                            }
+                                        }
+                                        continue;
+                                    }
+                                }
+
+                                // Fallback if no valid config file exists: show only alive processes
                                 let mut s_names: Vec<String> =
                                     state.processes.keys().cloned().collect();
                                 s_names.sort();
@@ -830,7 +930,7 @@ pub fn scan_global_processes_with_metrics(
                                             };
 
                                         rows.push(GlobalProcRow {
-                                            project_key: project_key.clone(),
+                                            project_key: dir_key.clone(),
                                             service_name: service_name.clone(),
                                             running: true,
                                             pid: Some(proc_entry.pid),
@@ -962,5 +1062,17 @@ mod tests {
         assert!(result.is_err());
         let err_msg = result.unwrap_err().to_string();
         assert!(err_msg.contains("Unknown dependency \"non_existent\""));
+    }
+
+    #[test]
+    fn test_state_serialization_with_config_path() {
+        let mut state = State::default();
+        state.config_path = Some(PathBuf::from("/tmp/my-project/procman.yaml"));
+        let json = serde_json::to_string(&state).unwrap();
+        let loaded: State = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            loaded.config_path,
+            Some(PathBuf::from("/tmp/my-project/procman.yaml"))
+        );
     }
 }

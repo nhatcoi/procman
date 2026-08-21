@@ -101,4 +101,56 @@ pub enum Commands {
         #[arg(long)]
         purge: bool,
     },
+    /// Install procman AI agent skill into project (.agents/skills/procman/SKILL.md)
+    Skill {
+        /// Target directory or file path to install SKILL.md into
+        #[arg(default_value = ".agents/skills/procman")]
+        dir: String,
+        /// Force overwrite existing skill file even if content matches
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Diagnose processes, analyze root causes, and suggest/apply fixes (Spot Check & AI Check)
+    Doctor {
+        /// Optional name of a specific process to diagnose (diagnoses all processes if omitted)
+        name: Option<String>,
+        /// Run fast Spot Check (Instant Rule Engine & Status Scanner) without prompt
+        #[arg(short, long)]
+        spot: bool,
+        /// Run deep AI Check using local AI Agent CLI (agy, claude, codex, gemini, ollama)
+        #[arg(long)]
+        ai: bool,
+        /// Explicitly choose the AI agent CLI executable to invoke
+        #[arg(long)]
+        agent: Option<String>,
+        /// Automatically execute the suggested remediation command
+        #[arg(short, long)]
+        fix: bool,
+    },
+    /// Automatically scan project and generate procman.yaml configuration
+    Init {
+        /// Target directory to scan (defaults to current directory)
+        #[arg(default_value = ".")]
+        dir: String,
+        /// Force deep analysis and generation using local AI Agent CLI (agy, claude, codex, gemini, ollama)
+        #[arg(long)]
+        ai: bool,
+        /// Explicitly choose the AI agent CLI executable to invoke
+        #[arg(long)]
+        agent: Option<String>,
+        /// Skip interactive confirmation and write procman.yaml directly
+        #[arg(short, long)]
+        yes: bool,
+        /// Overwrite existing procman.yaml if present
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Run Model Context Protocol (MCP) server for AI assistants (Antigravity, Claude, Cursor, Codex)
+    Mcp {
+        /// Optional project root directory (defaults to current directory)
+        #[arg(short, long)]
+        dir: Option<String>,
+    },
 }
+
+

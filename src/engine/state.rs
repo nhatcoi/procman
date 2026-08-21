@@ -2,7 +2,7 @@ use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
 use nix::sys::signal::kill;
@@ -36,6 +36,8 @@ pub struct TunnelEntry {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct State {
+    #[serde(default)]
+    pub config_path: Option<PathBuf>,
     #[serde(default)]
     pub processes: HashMap<String, ProcEntry>,
     #[serde(default)]
@@ -75,8 +77,16 @@ pub fn read_state(config_path: &Path) -> State {
 }
 
 pub fn write_state(config_path: &Path, state: &State) -> Result<()> {
+    let mut updated_state = state.clone();
+    if updated_state.config_path.is_none() {
+        if let Ok(abs) = fs::canonicalize(config_path) {
+            updated_state.config_path = Some(abs);
+        } else {
+            updated_state.config_path = Some(config_path.to_path_buf());
+        }
+    }
     let path = state_file_path(config_path)?;
-    let content = serde_json::to_string_pretty(state)?;
+    let content = serde_json::to_string_pretty(&updated_state)?;
     fs::write(&path, content)?;
     Ok(())
 }

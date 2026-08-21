@@ -67,9 +67,28 @@ procman --version
 
 ---
 
-## 🤖 AI Agent Skill Setup
+## 🤖 AI Agent Integration (MCP & Skills)
 
-Enable AI coding assistants (**Antigravity**, **Cursor**, **Claude Code**, **Windsurf**) to autonomously manage background processes in your project:
+### 1. Model Context Protocol (MCP) Server (`procman mcp`)
+
+Directly connect AI assistants (**Antigravity**, **Cursor**, **Claude Code**, **Codex**, **Windsurf**) to control background services, inspect real-time logs, query system liveness, and run AI diagnostics via standard JSON-RPC 2.0 stdio:
+
+Add to your MCP settings (`mcp_config.json`, `claude_desktop_config.json`, or `.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "procman": {
+      "command": "procman",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+### 2. Autonomous Agent Skill Setup (`procman skill`)
+
+Install procman's workflow guidelines and execution cheatsheet into your local project:
 
 ```bash
 # Option 1: Via procman CLI (Instant & offline)
@@ -83,9 +102,19 @@ curl -fsSL https://raw.githubusercontent.com/nhatcoi/procman/main/skills/procman
 
 ## ⚡ Quick Start Guide
 
-### Step 1: Create `procman.yaml`
+### Step 1: Initialize Configuration (`procman init`)
 
-Create a `procman.yaml` (or `procman.json`) in the root directory of your project:
+Auto-detect project frameworks, services, ports, and manifests (or generate manually):
+
+```bash
+# Auto-scan project & generate procman.yaml (Heuristic or local AI Agent)
+procman init
+
+# Or force AI Agent generation directly
+procman init --ai
+```
+
+Sample generated `procman.yaml` (or `procman.json`):
 
 ```yaml
 processes:
@@ -180,8 +209,23 @@ Automatically restart processes whenever source code files change with built-in 
 # Watch all configured processes
 procman watch
 
-# Watch only a specific service
-procman watch server
+### Step 8: Diagnose & Fix Crashes (`procman doctor`)
+
+Choose between **Spot Check** (instant offline Rule Engine) or **AI Check** (deep, visual AI Agent analysis across processes):
+
+```bash
+# Interactively choose between [1] Spot Check or [2] AI Check
+procman doctor
+
+# Run fast offline Spot Check directly
+procman doctor -s
+
+# Delegate deep system / process health analysis to local AI Agent CLI (claude, agy, gemini, ollama)
+procman doctor --ai
+procman doctor api --ai --agent claude
+
+# Automatically apply the suggested remediation command
+procman doctor api --fix
 ```
 
 ---
@@ -212,6 +256,7 @@ procman watch server
 | Command | Description |
 | :--- | :--- |
 | `procman` / `procman status` | Show status of current project (or auto-lists global processes if outside a repo) |
+| `procman init [dir] [--ai] [-y]` | **Auto-scan codebase & generate optimal `procman.yaml` (Heuristic or AI)** |
 | `procman ps` / `procman ls` | **List all active processes across all projects on the entire machine** |
 | `procman start [name] [-f]` | Start all or specific process (`-f, --force` to free ports) |
 | `procman stop [name]` | Gracefully stop all or specific process (`SIGTERM`) |
@@ -219,13 +264,16 @@ procman watch server
 | `procman kill [name]` | Force kill (`SIGKILL`) and immediately free ports |
 | `procman kill-port <port>` | Force kill whatever process is occupying a specific port |
 | `procman logs <name> [-f] [-n 100]` | View or follow logs for a process |
+| `procman doctor [name] [-s] [--ai] [-f]` | **Diagnose processes: Spot Check rule scanner or AI Check health analysis & fixes** |
 | `procman forward <name>` | Expose port via Cloudflare Quick Tunnel and print QR code |
 | `procman forward-stop <name>` | Stop active Cloudflare Quick Tunnel |
 | `procman qr <name>` | Print ASCII QR code in terminal for mobile scanning |
+| `procman mcp [-d, --dir <dir>]` | **Run Model Context Protocol (MCP) server for AI agents over stdio JSON-RPC** |
 | `procman skill` | Install AI agent skill (`.agents/skills/procman/SKILL.md`) into current project |
 | `procman upgrade` / `update` | Check for updates and upgrade procman to the latest release (`-y` to skip prompt) |
 | `procman uninstall` | Completely uninstall procman and stop background processes (`-p, --purge` to delete state/logs) |
 | `procman ui [-a, --all]` | Launch interactive TUI dashboard (`-a, --all` to open Global view directly) |
+
 
 ---
 

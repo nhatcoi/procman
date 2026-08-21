@@ -86,10 +86,13 @@ Execute `procman` commands from within the project directory (or any subfolder; 
 | Action | Command | Description |
 | :--- | :--- | :--- |
 | **Status** | `procman` or `procman status` | Displays tabular status for current project (or auto-lists global processes if outside a repo) |
+| **Auto Init** | `procman init [dir] [--ai] [-y]` | **Auto-scans project & generates optimal `procman.yaml` (Heuristic or AI)** |
 | **Global Process List** | `procman ps` or `procman ls` | Lists all active processes across all projects on the entire system |
 | **View Logs** | `procman logs <name>` | Prints the last 100 lines of log |
 | **Tail N Lines** | `procman logs <name> -n 50` | Prints the last 50 lines of log |
 | **Follow Logs** | `procman logs <name> -f` | Real-time streaming log output (`tail -f`) |
+| **Diagnose & Fix** | `procman doctor [name] [-s] [--ai] [-f]` | **Diagnoses processes via Spot Check (rule scanner) or AI Check (deep visual health report) & executes fix** |
+| **MCP Server** | `procman mcp [-d <dir>]` | **Runs Model Context Protocol (MCP) server for AI assistants via JSON-RPC 2.0 stdio** |
 | **QR Code** | `procman qr <name>` | Renders a terminal QR code for the process's active tunnel or local URL |
 | **Upgrade** | `procman upgrade` | Checks and self-upgrades procman to the latest release |
 | **Uninstall** | `procman uninstall` | Completely uninstalls procman binary and stops processes (`-p` to purge) |
@@ -121,8 +124,8 @@ procman ui --all
 When working in projects with multiple processes or when asked to run background servers:
 
 ### A. Setting Up a New Project
-1. Identify the services (e.g., frontend, backend, workers, queues).
-2. Generate a clean `procman.yaml` in the project root with exact `cmd`, `cwd`, and `port` values.
+1. Run `procman init -y` (or `procman init --ai -y`) to automatically inspect codebase manifests and generate `procman.yaml`.
+2. Inspect or customize `procman.yaml` as needed.
 3. Verify with `procman status`.
 
 ### B. Starting Services Non-Blockingly
@@ -134,12 +137,14 @@ Instead of running long-lived blocking commands (like `npm run dev` or `go run .
    procman logs <name> -n 30
    ```
 
-### C. Troubleshooting Service Failures
-1. If status shows `down` shortly after starting:
-   - Check `procman logs <name>` for exit errors or missing environment variables.
-   - Check whether another process is already bound to the target `port` (`lsof -i :<port>`).
+### C. Troubleshooting Service Failures (`procman doctor`)
+1. If status shows `down` or a service fails to start:
+   - Run `procman doctor -s` for fast offline Spot Check rule scanning.
+   - Run `procman doctor --ai` for deep, visual AI Agent analysis across all processes and logs.
+   - Run `procman doctor <name> --fix` to auto-remediate known issues (e.g. killing zombie ports, installing missing packages).
 2. After modifying code/config, reload using `procman restart <name>`.
 
 ### D. File Storage Locations
 * State metadata is stored at: `~/.local/state/procman/<projectKey>/state.json`
 * Raw log files are stored at: `~/.local/share/procman/<projectKey>/logs/<name>.log`
+
