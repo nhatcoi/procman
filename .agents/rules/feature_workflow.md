@@ -28,9 +28,9 @@ Never leave documentation out of sync. You MUST update all of the following in t
    - Mark the completed item as `[x]` in Section 2 (Planned Features / Backlog).
    - Summarize the new capability in Section 1 (Current Features).
 3. **AI Agent Skills**:
-   - `skills/procman/SKILL.md`: **Chỉ dành cho skill phân phối công khai của `procman`** (cho người dùng ngoài tải về dùng).
-   - `.agents/skills/`: Thư mục skills nội bộ phục vụ phát triển dự án (`procman/`, `feature-workflow/`, `release/`).
-   - Cập nhật bảng lệnh, phím tắt TUI và cờ CLI để AI assistant nắm bắt tính năng mới.
+   - `skills/procman/SKILL.md`: **Public distributable `procman` skill only** (for external users to download).
+   - `.agents/skills/`: Internal skills for developing this project (`procman/`, `feature-workflow/`, `release/`).
+   - Update the command table, TUI keys, and CLI flags so AI assistants learn new features.
 4. **Architecture Walkthrough (`docs/03_code_walkthrough_by_file.md`)**:
    - Add entry if a new source file was added to `src/`.
 

@@ -2,10 +2,6 @@
 target/
 **/*.rs.bk
 
-# Documentation (ignored per user request)
-/docs/
-docs/
-
 # IDE & OS files
 .DS_Store
 .idea/
