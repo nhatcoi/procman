@@ -2,7 +2,10 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Row, Table},
+    widgets::{
+        Block, Borders, Clear, Paragraph, Row, Scrollbar, ScrollbarOrientation, ScrollbarState,
+        Table,
+    },
     Frame,
 };
 
@@ -40,8 +43,9 @@ pub fn highlight_line<'a>(line: &'a str, query: &str) -> Line<'a> {
     }
 
     let mut spans = Vec::new();
-    let lower_line = line.to_lowercase();
-    let lower_query = query.to_lowercase();
+    // Case-insensitive match on ASCII only so byte offsets stay valid in `line`.
+    let lower_line = line.to_ascii_lowercase();
+    let lower_query = query.to_ascii_lowercase();
 
     let mut last_idx = 0;
     for (match_start, _) in lower_line.match_indices(&lower_query) {
@@ -603,34 +607,50 @@ pub fn render_qr_popup(f: &mut Frame, area: Rect, title: &str, url: &str) {
     f.render_widget(popup_paragraph, popup_area);
 }
 
-pub fn draw(f: &mut Frame, state: &AppState) {
-    let area = f.area();
+fn render_log_pane(
+    f: &mut Frame,
+    area: Rect,
+    state: &AppState,
+    title: String,
+) -> (usize, usize) {
+    let viewport_height = area.height.saturating_sub(2) as usize;
+    let total = state.log.visible_len();
+    let max_scroll = total.saturating_sub(viewport_height);
+    let offset = state.scroll_offset.min(max_scroll);
 
-    let filtered_lines: Vec<&str> = if state.search_query.is_empty() {
-        state.log_lines.iter().map(|s| s.as_str()).collect()
-    } else {
-        let lower_query = state.search_query.to_lowercase();
-        state
-            .log_lines
-            .iter()
-            .map(|s| s.as_str())
-            .filter(|l| l.to_lowercase().contains(&lower_query))
-            .collect()
-    };
-
-    let total_log_count = filtered_lines.len();
-
-    let visible_slice = if state.scroll_offset > 0 && total_log_count > state.scroll_offset {
-        let end = total_log_count - state.scroll_offset;
-        &filtered_lines[..end]
-    } else {
-        &filtered_lines[..]
-    };
-
-    let styled_log_lines: Vec<Line> = visible_slice
-        .iter()
+    // Only build the lines that are actually on screen.
+    let end = total - offset;
+    let start = end.saturating_sub(viewport_height);
+    let lines: Vec<Line> = state
+        .log
+        .slice(start, end)
+        .into_iter()
         .map(|l| highlight_line(l, &state.search_query))
         .collect();
+
+    let paragraph = Paragraph::new(lines).block(
+        Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(Color::Cyan)),
+    );
+    f.render_widget(paragraph, area);
+
+    if max_scroll > 0 {
+        let scrollbar = Scrollbar::new(ScrollbarOrientation::VerticalRight)
+            .begin_symbol(Some("↑"))
+            .end_symbol(Some("↓"));
+        let mut scrollbar_state = ScrollbarState::new(max_scroll).position(max_scroll - offset);
+        f.render_stateful_widget(scrollbar, area, &mut scrollbar_state);
+    }
+
+    (max_scroll, viewport_height.max(1))
+}
+
+pub fn draw(f: &mut Frame, state: &mut AppState) {
+    let area = f.area();
+
+    let total_log_count = state.log.visible_len();
 
     if state.is_fullscreen_log {
         let chunks = Layout::default()
@@ -666,13 +686,11 @@ pub fn draw(f: &mut Frame, state: &AppState) {
             " FULLSCREEN LOG: {}{} {}{}- (Enter/Esc to exit) ",
             mode_badge, state.display_title, search_badge, scroll_badge
         );
-        let log_paragraph = Paragraph::new(styled_log_lines).block(
-            Block::default()
-                .title(log_title)
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
-        );
-        f.render_widget(log_paragraph, chunks[0]);
+        let (max_scroll, page_height) =
+            render_log_pane(f, chunks[0], state, log_title);
+        state.max_scroll = max_scroll;
+        state.page_height = page_height;
+        state.scroll_offset = state.scroll_offset.min(max_scroll);
 
         let help_spans = build_help_spans(state);
         f.render_widget(Paragraph::new(Line::from(help_spans)), chunks[1]);
@@ -714,18 +732,21 @@ pub fn draw(f: &mut Frame, state: &AppState) {
         } else {
             String::new()
         };
+        let scroll_badge = if state.scroll_offset > 0 {
+            format!(" [Scrolled +{}]", state.scroll_offset)
+        } else {
+            String::new()
+        };
 
         let log_title = format!(
-            " log: {} {} (Enter: fullscreen, /: search) ",
-            state.display_title, search_badge
+            " log: {} {}{} (Enter: fullscreen, PgUp/PgDn/Mouse: scroll, /: search) ",
+            state.display_title, search_badge, scroll_badge
         );
-        let log_paragraph = Paragraph::new(styled_log_lines).block(
-            Block::default()
-                .title(log_title)
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::Cyan)),
-        );
-        f.render_widget(log_paragraph, chunks[1]);
+        let (max_scroll, page_height) =
+            render_log_pane(f, chunks[1], state, log_title);
+        state.max_scroll = max_scroll;
+        state.page_height = page_height;
+        state.scroll_offset = state.scroll_offset.min(max_scroll);
 
         let help_spans = build_help_spans(state);
         f.render_widget(Paragraph::new(Line::from(help_spans)), chunks[2]);

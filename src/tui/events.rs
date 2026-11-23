@@ -1,7 +1,9 @@
-use crossterm::event::KeyCode;
+use crossterm::event::{KeyCode, MouseEvent, MouseEventKind};
 
 use super::actions;
 use super::app::AppState;
+
+const MOUSE_SCROLL_STEP: usize = 3;
 
 pub enum KeyActionResult {
     Continue,
@@ -53,7 +55,6 @@ pub fn handle_key(state: &mut AppState, code: KeyCode) -> KeyActionResult {
     }
 
     if state.is_fullscreen_log {
-        let total_log_count = state.log_lines.len();
         match code {
             KeyCode::Enter | KeyCode::Char(' ') | KeyCode::Esc => {
                 state.is_fullscreen_log = false;
@@ -68,19 +69,22 @@ pub fn handle_key(state: &mut AppState, code: KeyCode) -> KeyActionResult {
                 state.status_msg = "filter cleared".to_string();
             }
             KeyCode::Up | KeyCode::Char('k') => {
-                state.scroll_offset = state.scroll_offset.saturating_add(1);
+                state.scroll_offset = state.scroll_offset.saturating_add(1).min(state.max_scroll);
             }
             KeyCode::Down | KeyCode::Char('j') => {
                 state.scroll_offset = state.scroll_offset.saturating_sub(1);
             }
             KeyCode::PageUp => {
-                state.scroll_offset = state.scroll_offset.saturating_add(15);
+                state.scroll_offset = state
+                    .scroll_offset
+                    .saturating_add(state.page_height.max(1))
+                    .min(state.max_scroll);
             }
             KeyCode::PageDown => {
-                state.scroll_offset = state.scroll_offset.saturating_sub(15);
+                state.scroll_offset = state.scroll_offset.saturating_sub(state.page_height.max(1));
             }
             KeyCode::Home | KeyCode::Char('g') => {
-                state.scroll_offset = total_log_count.saturating_sub(10);
+                state.scroll_offset = state.max_scroll;
             }
             KeyCode::End | KeyCode::Char('G') => {
                 state.scroll_offset = 0;
@@ -162,11 +166,28 @@ pub fn handle_key(state: &mut AppState, code: KeyCode) -> KeyActionResult {
             } else if state.row_count > 0 {
                 state.selected_idx = state.row_count - 1;
             }
+            state.scroll_offset = 0;
         }
         KeyCode::Down => {
             if state.row_count > 0 {
                 state.selected_idx = (state.selected_idx + 1) % state.row_count;
             }
+            state.scroll_offset = 0;
+        }
+        KeyCode::PageUp => {
+            state.scroll_offset = state
+                .scroll_offset
+                .saturating_add(state.page_height.max(1))
+                .min(state.max_scroll);
+        }
+        KeyCode::PageDown => {
+            state.scroll_offset = state.scroll_offset.saturating_sub(state.page_height.max(1));
+        }
+        KeyCode::Home => {
+            state.scroll_offset = state.max_scroll;
+        }
+        KeyCode::End => {
+            state.scroll_offset = 0;
         }
         KeyCode::Char('s') => actions::start_selected(state),
         KeyCode::Char('r') => actions::restart_selected(state),
@@ -181,4 +202,22 @@ pub fn handle_key(state: &mut AppState, code: KeyCode) -> KeyActionResult {
     }
 
     KeyActionResult::Continue
+}
+
+pub fn handle_mouse(state: &mut AppState, mouse: MouseEvent) {
+    if state.show_qr_modal || state.is_search_input {
+        return;
+    }
+    match mouse.kind {
+        MouseEventKind::ScrollUp => {
+            state.scroll_offset = state
+                .scroll_offset
+                .saturating_add(MOUSE_SCROLL_STEP)
+                .min(state.max_scroll);
+        }
+        MouseEventKind::ScrollDown => {
+            state.scroll_offset = state.scroll_offset.saturating_sub(MOUSE_SCROLL_STEP);
+        }
+        _ => {}
+    }
 }

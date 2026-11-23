@@ -4,14 +4,12 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::engine::config::Config;
-use crate::engine::logs::read_tail;
 use crate::engine::metrics::ProcessMetrics;
 use crate::engine::paths::global_data_root;
+use super::logview::LogView;
 use crate::engine::supervisor::{self, log_file_for, GlobalProcRow, StatusRow};
 
 pub const UI_REFRESH_INTERVAL: Duration = Duration::from_millis(500);
-pub const NORMAL_LOG_LINES: usize = 18;
-pub const FULLSCREEN_LOG_LINES: usize = 500;
 
 pub struct AppState {
     pub is_global_mode: bool,
@@ -22,6 +20,8 @@ pub struct AppState {
     pub is_search_input: bool,
     pub search_query: String,
     pub scroll_offset: usize,
+    pub max_scroll: usize,
+    pub page_height: usize,
     pub local_rows: Vec<StatusRow>,
     pub global_rows: Vec<GlobalProcRow>,
     pub pending_actions: Arc<Mutex<HashMap<String, String>>>,
@@ -32,7 +32,8 @@ pub struct AppState {
     pub selected_url: Option<String>,
     pub target_log: PathBuf,
     pub row_count: usize,
-    pub log_lines: Vec<String>,
+    pub log: LogView,
+    pub dirty: bool,
 }
 
 impl AppState {
@@ -47,6 +48,8 @@ impl AppState {
             is_search_input: false,
             search_query: String::new(),
             scroll_offset: 0,
+            max_scroll: 0,
+            page_height: 15,
             local_rows: Vec::new(),
             global_rows: Vec::new(),
             pending_actions: Arc::new(Mutex::new(HashMap::new())),
@@ -57,7 +60,8 @@ impl AppState {
             selected_url: None,
             target_log: PathBuf::new(),
             row_count: 0,
-            log_lines: Vec::new(),
+            log: LogView::default(),
+            dirty: true,
         }
     }
 
@@ -179,17 +183,15 @@ impl AppState {
             }
         }
 
-        let lines_to_read = if self.is_fullscreen_log {
-            FULLSCREEN_LOG_LINES
-        } else {
-            NORMAL_LOG_LINES
-        };
-        let raw_tail = if self.target_log.is_file() {
-            read_tail(&self.target_log, lines_to_read)
-        } else {
-            "(no logs recorded yet)".to_string()
-        };
-
-        self.log_lines = raw_tail.lines().map(|s| s.to_string()).collect();
+        let r = self.log.sync(&self.target_log, &self.search_query);
+        if r.reset {
+            self.scroll_offset = 0;
+        } else if self.scroll_offset > 0 && r.appended > 0 {
+            // keep the scrolled view anchored while new lines stream in
+            self.scroll_offset += r.appended;
+        }
+        if r.changed {
+            self.dirty = true;
+        }
     }
 }
